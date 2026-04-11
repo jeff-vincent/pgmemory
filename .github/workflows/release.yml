@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tray:
+    name: Build Tray App
+    runs-on: macos-latest
+    needs: goreleaser
+    strategy:
+      matrix:
+        goarch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build memoryd-tray
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          go build -ldflags "-s -w" -o memoryd-tray-darwin-${{ matrix.goarch }} ./cmd/memoryd-tray
+
+      - name: Download memoryd CLI from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          ASSET="memoryd_${VERSION}_darwin_${{ matrix.goarch }}.tar.gz"
+          gh release download "$TAG" --pattern "$ASSET"
+          mkdir -p bundle
+          tar -xzf "$ASSET" -C bundle
+          cp memoryd-tray-darwin-${{ matrix.goarch }} bundle/memoryd-tray
+
+      - name: Build .app bundle
+        run: |
+          bash scripts/build-release-app.sh bundle
+          cd bundle && zip -r ../Memoryd-darwin-${{ matrix.goarch }}.zip Memoryd.app
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            memoryd-tray-darwin-${{ matrix.goarch }} \
+            Memoryd-darwin-${{ matrix.goarch }}.zip \
+            --clobber

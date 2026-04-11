@@ -1,0 +1,33 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      # Fire-and-forget OS commands (tray app osascript, open, pbcopy).
+      - (*os/exec.Cmd).Start
+      - (*os/exec.Cmd).Run
+      - (*os/exec.Cmd).Wait
+      # Process management — best-effort signals and cleanup.
+      - (*os.Process).Kill
+      - (*os.Process).Signal
+      - (*os.Process).Wait
+      # HTTP response writes — errors caught by http.Server internally.
+      - (net/http.ResponseWriter).Write
+      - (io.Writer).Write
+      # Best-effort filesystem ops in non-critical paths.
+      - os.MkdirAll
+      # Interactive CLI input.
+      - fmt.Scanln
+      # JSON decode/unmarshal in non-critical paths (MCP server, stress tests).
+      - (*encoding/json.Decoder).Decode
+      - (*encoding/json.Encoder).Encode
+      - encoding/json.Unmarshal
+
+issues:
+  exclude-dirs:
+    - eval

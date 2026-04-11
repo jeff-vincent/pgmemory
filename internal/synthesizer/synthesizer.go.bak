@@ -1,0 +1,295 @@
+// Package synthesizer uses an LLM to distill topic groups and conversation
+// arcs into coherent, standalone memory entries.
+package synthesizer
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+)
+
+const (
+	defaultModel     = "claude-haiku-4-5-20251001"
+	defaultMaxTokens = 1024
+	defaultMinChunks = 2
+)
+
+// skipSentinel is the exact string the model returns when an exchange has no
+// durable technical value and should be dropped entirely.
+const skipSentinel = "SKIP"
+
+// ConversationTurn is a single message in a conversation arc.
+type ConversationTurn struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
+
+// Synthesizer calls the Anthropic API to synthesize fragmented text into
+// coherent, standalone memory entries. All methods are nil-safe — a nil
+// Synthesizer is a no-op and Available() returns false.
+type Synthesizer struct {
+	apiKey    string
+	baseURL   string
+	model     string
+	maxTokens int
+	minChunks int
+	client    *http.Client
+}
+
+// Option configures a Synthesizer.
+type Option func(*Synthesizer)
+
+// WithModel overrides the default model.
+func WithModel(model string) Option {
+	return func(s *Synthesizer) { s.model = model }
+}
+
+// WithMaxTokens overrides the default max output tokens.
+func WithMaxTokens(n int) Option {
+	return func(s *Synthesizer) { s.maxTokens = n }
+}
+
+// WithMinChunks sets the minimum number of chunks needed before synthesis
+// is attempted. Groups smaller than this are returned as-is via Join.
+func WithMinChunks(n int) Option {
+	return func(s *Synthesizer) { s.minChunks = n }
+}
+
+// New creates a Synthesizer. Pass an empty apiKey to disable synthesis
+// (Available() will return false).
+func New(apiKey, baseURL string, opts ...Option) *Synthesizer {
+	s := &Synthesizer{
+		apiKey:    apiKey,
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		model:     defaultModel,
+		maxTokens: defaultMaxTokens,
+		minChunks: defaultMinChunks,
+		client:    &http.Client{},
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// Available returns true when synthesis is possible (non-nil, API key set).
+func (s *Synthesizer) Available() bool {
+	return s != nil && s.apiKey != ""
+}
+
+// Synthesize merges a set of related text chunks into a single coherent entry.
+// If len(chunks) < minChunks or the synthesizer is unavailable, it falls back
+// to joining with "\n\n".
+func (s *Synthesizer) Synthesize(ctx context.Context, chunks []string) (string, error) {
+	if !s.Available() || len(chunks) < s.minChunks {
+		return strings.Join(chunks, "\n\n"), nil
+	}
+
+	combined := strings.Join(chunks, "\n\n---\n\n")
+	prompt := `You are building a memory store for an AI coding assistant. These fragments are related content that should be distilled into a single entry.
+
+A future AI assistant will search this memory store at the start of a new session to avoid re-discovering context. Write for that reader — not for a human documenting their work.
+
+What makes a memory worth retrieving:
+- Non-obvious file locations ("X lives in path/to/file, not where you'd expect")
+- Decisions with rationale ("uses Y instead of Z because of W constraint")
+- Gotchas and workarounds ("X fails when Y — do Z instead")
+- Architecture shortcuts ("to add a new X: do A in file B, add a case in C")
+- Specific config values, API behaviors, error message patterns
+
+Format:
+[module] specific topic
+
+- concrete fact (include exact file paths, function names, config keys)
+- decision: chose X over Y — why
+- gotcha: X breaks when Y — use Z
+(3–10 bullets; each bullet must stand alone as a search result)
+
+Omit:
+- Process narration ("first I read X, then I changed Y")
+- Generic observations without specific technical anchors
+- Anything obvious from reading the code
+
+Output the entry directly. No preamble.
+
+Fragments:
+
+` + combined
+
+	return s.complete(ctx, prompt)
+}
+
+// SynthesizeQA distills a single user question + assistant answer into a
+// memory entry, or returns ("", nil) if the exchange has no durable value.
+//
+// This is the primary quality gate for proxy-captured content. The model is
+// instructed to return the sentinel "SKIP" for procedural exchanges ("I'll
+// look at that", "I've made the changes") that carry no reusable knowledge.
+func (s *Synthesizer) SynthesizeQA(ctx context.Context, question, answer string) (string, error) {
+	if !s.Available() {
+		return "", nil
+	}
+
+	prompt := fmt.Sprintf(`You are a memory curator for an AI coding assistant. Assess whether this exchange contains durable technical knowledge — and if so, distill it to its essence.
+
+A memory has durable value if a future AI instance starting fresh on this project would benefit: it saves exploration time, prevents a mistake, or answers a non-obvious question about the system that isn't obvious from reading the code.
+
+---
+USER: %s
+
+ASSISTANT: %s
+---
+
+Does this exchange contain any of:
+- A specific technical discovery (file location, config value, API behavior, architectural fact)
+- A decision made with rationale (why X was chosen over Y)
+- A non-obvious constraint, gotcha, or failure mode
+- A concrete implementation pattern with specific names (not just "I made the changes")
+
+If none of the above — the exchange is procedural narration, a generic explanation, or a status update — respond with exactly: SKIP
+
+Otherwise output a memory entry:
+
+**[module/area] specific topic**
+- fact with exact name (file path, function name, config key, error message)
+- decision: X over Y — because Z
+- gotcha: X breaks when Y — workaround is Z
+(3–8 bullets maximum; each bullet must be self-contained)
+
+Rules:
+- Never include "I looked at X" or "I made changes to Y" — extract the finding, not the process
+- If the answer explains what was done without a specific technical anchor, it is SKIP
+- Include the "why" for any decision
+- Prefer file:line references and exact identifiers over prose descriptions
+
+Output directly. No preamble.`, question, answer)
+
+	result, err := s.complete(ctx, prompt)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(result) == skipSentinel {
+		return "", nil
+	}
+	return result, nil
+}
+
+// SynthesizeConversation distills a multi-turn conversation into a structured
+// memory entry capturing the problem, approach, and resolution.
+func (s *Synthesizer) SynthesizeConversation(ctx context.Context, turns []ConversationTurn) (string, error) {
+	if !s.Available() || len(turns) < 2 {
+		// Fall back: concatenate turns with role labels.
+		var parts []string
+		for _, t := range turns {
+			parts = append(parts, fmt.Sprintf("%s: %s", t.Role, t.Content))
+		}
+		return strings.Join(parts, "\n\n"), nil
+	}
+
+	var convBuf strings.Builder
+	for _, t := range turns {
+		fmt.Fprintf(&convBuf, "**%s:** %s\n\n", t.Role, t.Content)
+	}
+
+	prompt := fmt.Sprintf(`You are building a memory store for an AI coding assistant. This is a complete coding session arc.
+
+Create a compact session summary that captures ONLY what a future AI instance starting fresh on this project would need to know — specifically what was learned that isn't obvious from reading the current code or git history.
+
+Extract:
+- The core problem and its non-obvious root cause (not just "there was a bug")
+- Key files and functions discovered and why they matter
+- Decisions made and the reasoning (especially when alternatives were considered)
+- What was tried and failed — save future instances from repeating dead ends
+- Config values, env vars, thresholds, or external dependencies that were pinned
+- Architecture facts: how modules connect, where things live, what the data flow is
+
+Skip:
+- The sequence of steps taken (re-derivable from git history)
+- Restatements of the user's requirements
+- Generic explanations of well-documented patterns
+- Confirmations that tasks were completed
+
+Format:
+[session] {one-line topic summary}
+
+Key findings:
+- specific fact (include location)
+- architectural fact: X calls Y which reads Z
+
+Decisions:
+- chose X over Y: because Z (only if decisions were made)
+
+Dead ends:
+- tried X: failed because Y (only if something was tried and abandoned)
+
+Under 350 words. Output directly, no preamble.
+
+Conversation:
+
+%s`, convBuf.String())
+
+	return s.complete(ctx, prompt)
+}
+
+// complete sends a prompt to the Anthropic messages API and returns the response text.
+func (s *Synthesizer) complete(ctx context.Context, prompt string) (string, error) {
+	reqBody, err := json.Marshal(map[string]any{
+		"model":      s.model,
+		"max_tokens": s.maxTokens,
+		"messages": []map[string]any{
+			{"role": "user", "content": prompt},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("synthesizer: marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		s.baseURL+"/v1/messages", bytes.NewReader(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("synthesizer: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", s.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("synthesizer: API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("synthesizer: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("synthesizer: API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("synthesizer: parse response: %w", err)
+	}
+
+	var parts []string
+	for _, block := range result.Content {
+		if block.Type == "text" && block.Text != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("synthesizer: empty response")
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n")), nil
+}

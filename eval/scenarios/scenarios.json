@@ -1,0 +1,107 @@
+[
+  {
+    "name": "codebase-convention-recall",
+    "description": "Tests whether accumulated project context helps Claude follow established conventions when writing new code.",
+    "seeds": [
+      "The memoryd project uses Go 1.26 with the module path github.com/memory-daemon/memoryd. All HTTP handlers follow the pattern: func handleFoo(w http.ResponseWriter, r *http.Request) with json.NewEncoder(w).Encode for responses.",
+      "Error responses in memoryd always use http.Error(w, message, code) — never custom error structs. All API endpoints are registered in registerAPI() inside internal/proxy/api.go.",
+      "MongoDB queries in memoryd use the official go.mongodb.org/mongo-driver. The store layer is defined as an interface in internal/store/store.go with a MongoStore implementation in mongo.go. All methods take context.Context as the first arg.",
+      "The project uses table-driven tests with t.Run() subtests. Test files colocate with source files. The test helper pattern is: func setupTest(t *testing.T) (*Store, func()) where the cleanup func drops the test database.",
+      "Configuration is loaded from ~/.memoryd/config.yaml using a Config struct in internal/config/config.go. Fields use yaml struct tags. The Port field defaults to 7432."
+    ],
+    "prompt": "Write a new HTTP endpoint for memoryd that returns memory statistics: total count, count per source, and average quality score. Include the handler function, the store method signature, and a table-driven test. Follow the project's existing patterns.",
+    "rubric": [
+      "Follows the project's handler pattern (http.ResponseWriter + *http.Request, json.Encode response)",
+      "Error handling matches project convention (http.Error, not custom structs)",
+      "Store method signature follows existing interface pattern (context.Context first arg, returns error)",
+      "Test uses table-driven pattern with t.Run() subtests",
+      "Configuration and package structure match established conventions"
+    ],
+    "max_score": 5,
+    "tags": ["codebase", "convention", "code-generation"]
+  },
+  {
+    "name": "architecture-decision-reasoning",
+    "description": "Tests whether knowledge of prior architectural decisions helps Claude reason about new design choices.",
+    "seeds": [
+      "memoryd chose MongoDB Atlas with vector search over pgvector because: 1) Atlas Local runs as a single Docker container with no config, 2) vector search indexes are declarative, 3) the $vectorSearch aggregation pipeline integrates naturally with filtering.",
+      "The write pipeline splits content into chunks, embeds each with a local GGUF model (voyage-4-nano), deduplicates against existing memories using cosine similarity >= 0.92, and stores in MongoDB. This avoids sending data to external embedding APIs.",
+      "memoryd uses a capture-only proxy model: the /v1/messages proxy forwards requests unchanged and only ingests the conversation on the response path. Retrieval is handled entirely by MCP tools, not by the proxy. This was chosen to avoid modifying API requests which could break streaming.",
+      "The quality tracking system uses a 'learning mode' concept: until 50 retrieval events accumulate, the system is in learning mode and doesn't filter results by quality. After that threshold, hit_count and quality_score become meaningful signals.",
+      "Security redaction runs before storage, not at retrieval time. The internal/redact package strips API keys, tokens, passwords, and PII patterns using regex + keyword scanning. This was chosen over retrieval-time redaction because it's safer to never store secrets."
+    ],
+    "prompt": "We're considering adding a 'memory aging' feature to memoryd where older memories gradually lose relevance. Should we implement this as: (A) a TTL-based expiry where memories auto-delete after N days, (B) a decay factor applied to similarity scores during retrieval, or (C) a periodic background job that re-evaluates and prunes low-value memories? Reason through the tradeoffs given the system's architecture.",
+    "rubric": [
+      "References or aligns with the existing quality tracking / hit_count system",
+      "Considers impact on the vector search pipeline and MongoDB query patterns",
+      "Accounts for the write-once-redact-early security model",
+      "Reasoning about the capture-only proxy and MCP retrieval separation",
+      "Quality of tradeoff analysis and final recommendation"
+    ],
+    "max_score": 5,
+    "tags": ["architecture", "reasoning", "design"]
+  },
+  {
+    "name": "debugging-with-operational-context",
+    "description": "Tests whether operational history helps Claude debug a realistic issue.",
+    "seeds": [
+      "On March 15 2026, memoryd search started returning empty results. Root cause: the Docker container memoryd-mongo had restarted and the vector_index was lost. Fix: re-run scripts/create_index.js. Symptom: /api/search returns {\"context\":\"\"} even for queries that should match.",
+      "The embedding server (llama-server) occasionally OOMs when processing very long chunks. When this happens, the write pipeline logs 'embedding request failed' and the memory is stored without an embedding (zero vector). These memories are never retrieved by vector search.",
+      "If memoryd starts but /health returns connection refused, check: 1) Is the port already in use (lsof -i :7432), 2) Did MongoDB come up before memoryd tried to connect (the startup doesn't retry), 3) Is llama-server running on port 7433.",
+      "A user reported that memories from source ingestion were duplicated. Root cause: the crawl job re-ingested pages that had only minor HTML changes (nav bar updates) but the content hash was different. Fix: we added content normalization before hashing.",
+      "The proxy write pipeline has a race condition under high concurrency: if two identical messages arrive within the embedding latency window (~200ms), both pass the dedup check against the DB and both get stored. The dedup threshold is cosine >= 0.92. Accepted as low-severity since near-duplicates are still usable."
+    ],
+    "prompt": "A user reports: 'I've been using memoryd for a week and it was working great, but today when I ask Claude questions about my project, it doesn't seem to remember anything from yesterday's session. The daemon is running and /health returns ok. I can see memories in the dashboard.' What's the most likely cause and how would you debug it?",
+    "rubric": [
+      "Identifies vector search index as a likely suspect (known issue from operational history)",
+      "Suggests checking if the embedding server is healthy",
+      "Provides a concrete debugging sequence (not just generic advice)",
+      "Distinguishes between memories existing vs being retrievable by vector search",
+      "References the dedup or zero-vector failure mode as a possibility"
+    ],
+    "max_score": 5,
+    "tags": ["debugging", "operational", "reasoning"]
+  },
+  {
+    "name": "multi-turn-preference-tracking",
+    "description": "Tests whether accumulated user preference context improves response personalization.",
+    "seeds": [
+      "User prefers concise, direct answers without preamble. When asked 'how do I X', they want the command or code first, explanation second.",
+      "User works primarily in Go and shell scripts. When giving code examples, prefer Go over Python unless explicitly asked otherwise.",
+      "User's memoryd deployment uses local Docker MongoDB, not Atlas cloud. When discussing MongoDB operations, use docker exec memoryd-mongo mongosh commands.",
+      "User uses macOS on Apple Silicon (arm64). When suggesting installations, prefer 'brew install' and reference arm64/darwin binaries.",
+      "User is building memoryd as the project owner. They know the full codebase intimately — don't over-explain internal concepts, focus on implementation options and tradeoffs."
+    ],
+    "prompt": "How should I add rate limiting to the memoryd API?",
+    "rubric": [
+      "Response style matches preferences (concise, code-first, no excessive preamble)",
+      "Code examples are in Go (not Python or generic pseudocode)",
+      "Solution is appropriate for the memoryd architecture (HTTP middleware in Go)",
+      "Treats the user as a project owner (discusses tradeoffs, not tutorials)",
+      "Practical and implementable (not overly abstract)"
+    ],
+    "max_score": 5,
+    "tags": ["personalization", "preferences", "code-generation"]
+  },
+  {
+    "name": "cross-session-continuity",
+    "description": "Tests whether context from a previous 'session' helps Claude continue work coherently.",
+    "seeds": [
+      "In the previous session, we started adding a retention policy feature to memoryd. We created internal/retention/policy.go with a Policy struct that has MaxAge (time.Duration), MaxCount (int), and MinQualityScore (float64) fields.",
+      "The retention policy enforce() method was partially written. It queries memories ordered by created_at, skips any with hit_count > 10, and deletes the rest that exceed MaxAge. We haven't implemented MaxCount or MinQualityScore enforcement yet.",
+      "We decided the retention policy should run as a background goroutine started in cmd/memoryd/main.go, ticking every hour. It should use the existing Store interface methods: ListAll(), Delete(), and the QualityScore field on Memory.",
+      "Open question from last session: should retention policy deletion be 'soft delete' (mark as archived) or 'hard delete' (permanent removal)? We were leaning toward hard delete since memories are derived from conversations that still exist in the chat provider.",
+      "We added a 'retention' section to config.yaml but haven't wired it to the Config struct yet. The YAML keys are: retention.max_age (duration string), retention.max_count (int), retention.min_quality (float)."
+    ],
+    "prompt": "Let's pick up where we left off on the retention policy. What's the current state and what do we need to finish?",
+    "rubric": [
+      "Accurately recaps the current state (Policy struct, partial enforce(), background goroutine plan)",
+      "Identifies the remaining work (MaxCount, MinQualityScore, config wiring, soft vs hard delete decision)",
+      "Continues in the same architectural direction (not starting over or contradicting prior decisions)",
+      "Addresses the open question about soft vs hard delete with reasoning",
+      "Provides actionable next steps in the right order"
+    ],
+    "max_score": 5,
+    "tags": ["continuity", "multi-session", "reasoning"]
+  }
+]

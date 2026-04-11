@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memoryd</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --border: #e1e4e8;
+    --border-light: #eef0f2;
+    --text: #24292f;
+    --text-secondary: #57606a;
+    --text-muted: #8b949e;
+    --accent: #0969da;
+    --accent-light: #ddf4ff;
+    --green: #1a7f37;
+    --green-bg: #dafbe1;
+    --yellow: #9a6700;
+    --yellow-bg: #fff8c5;
+    --red: #cf222e;
+    --red-bg: #ffebe9;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", monospace;
+    --radius: 6px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+    --sidebar-w: 200px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100vh; font-size: 14px; line-height: 1.5; overflow: hidden; }
+
+  /* App shell: sidebar + main */
+  .app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  .sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-brand { padding: 20px 16px 8px; display: flex; align-items: center; gap: 8px; }
+  .sidebar-brand h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  .sidebar-status { padding: 0 16px 16px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  .sidebar-status .status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 10px; }
+  .sidebar-status .status-badge.ok { background: var(--green-bg); color: var(--green); }
+  .sidebar-status .status-badge.down { background: var(--red-bg); color: var(--red); }
+  .status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .nav-group-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 16px 4px; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 16px; font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: background 0.1s, color 0.1s; border-left: 2px solid transparent; }
+  .nav-item:hover { background: var(--bg); color: var(--text); }
+  .nav-item.active { background: var(--accent-light); color: var(--accent); border-left-color: var(--accent); }
+  .nav-icon { width: 16px; text-align: center; font-size: 14px; flex-shrink: 0; }
+
+  .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+
+  /* Main content area */
+  .main { flex: 1; overflow-y: auto; }
+  .main-inner { max-width: 960px; padding: 28px 32px; }
+
+  /* Pages */
+  .page { display: none; }
+  .page.active { display: block; }
+  .page-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.01em; }
+
+  /* Stat cards */
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .stat-label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .stat-value { font-size: 24px; font-weight: 600; font-family: var(--mono); color: var(--text); line-height: 1.2; }
+  .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+  /* Sections */
+  .section { margin-bottom: 24px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .section-title { font-size: 14px; font-weight: 600; }
+  .section-meta { font-size: 12px; color: var(--text-muted); }
+
+  /* Card container */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+
+  /* Table styles */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg); border-bottom: 1px solid var(--border); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border-light); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f6f8fa; }
+
+  /* Tags */
+  .tag { display: inline-block; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 12px; white-space: nowrap; }
+  .tag-source { background: var(--accent-light); color: var(--accent); }
+  .tag-ready { background: var(--green-bg); color: var(--green); }
+  .tag-crawling { background: var(--yellow-bg); color: var(--yellow); }
+  .tag-error { background: var(--red-bg); color: var(--red); }
+
+  /* Score bar */
+  .score-bar { display: inline-flex; align-items: center; gap: 6px; }
+  .score-track { width: 48px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .score-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+  .score-text { font-size: 12px; font-family: var(--mono); color: var(--text-secondary); }
+
+  /* Progress bar */
+  .progress-container { margin-top: 5px; }
+  .progress-track { width: 100%; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease; }
+
+  /* Empty state */
+  .empty-state { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+  /* Tabs (inner, for pages that have sub-tabs) */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+  .tab { padding: 10px 16px; font-size: 13px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s, border-color 0.15s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Time display */
+  .time-ago { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+  /* Forms */
+  .add-source-form { display: flex; gap: 8px; padding: 14px; border-bottom: 1px solid var(--border); align-items: flex-end; }
+  .form-group { display: flex; flex-direction: column; gap: 3px; }
+  .form-group label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-group input { font-family: var(--font); font-size: 13px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); outline: none; transition: border-color 0.15s; }
+  .form-group input:focus { border-color: var(--accent); }
+  .form-group input::placeholder { color: var(--text-muted); }
+  .form-group.name-field input { width: 160px; }
+  .form-group.url-field { flex: 1; }
+  .form-group.url-field input { width: 100%; }
+  .btn { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: background 0.15s, border-color 0.15s; white-space: nowrap; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { background: #0860c4; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .form-message { font-size: 12px; padding: 0 14px 10px; }
+  .form-message.success { color: var(--green); }
+  .form-message.error { color: var(--red); }
+  .form-divider { display: flex; align-items: center; gap: 12px; padding: 0 14px; font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-divider::before, .form-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* Upload form */
+  .upload-form { display: flex; gap: 8px; padding: 14px; align-items: flex-end; border-bottom: 1px solid var(--border); }
+  .file-input-wrap { position: relative; flex: 1; }
+  .file-input-wrap input[type="file"] { font-family: var(--font); font-size: 13px; padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); width: 100%; outline: none; }
+  .file-input-wrap input[type="file"]:focus { border-color: var(--accent); }
+  .file-count { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Knowledge list */
+  .knowledge-item { padding: 12px 14px; border-bottom: 1px solid var(--border-light); }
+  .knowledge-item:last-child { border-bottom: none; }
+  .knowledge-item:hover { background: #f6f8fa; }
+  .knowledge-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .knowledge-content { font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+  .knowledge-content[contenteditable="true"] { background: #fff; border: 1px solid var(--accent); border-radius: var(--radius); padding: 8px; outline: none; }
+  .knowledge-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .btn-sm { font-family: var(--font); font-size: 11px; font-weight: 500; padding: 3px 10px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; background: var(--surface); color: var(--text-secondary); transition: all 0.15s; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.editing { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-sm.delete:hover { border-color: var(--red); color: var(--red); }
+  .knowledge-page { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: var(--border); border-radius: 20px; transition: 0.2s; }
+  .toggle-slider::before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .toggle-slider { background: var(--green); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+  .tag-primary { background: var(--accent-light); color: var(--accent); }
+  .tag-readonly { background: #f0f0f0; color: var(--text-secondary); }
+  .tag-disabled { background: var(--red-bg); color: var(--red); }
+
+  /* Two-column layout */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Pipeline / settings sections */
+  .pipeline-section { padding: 16px 14px; border-bottom: 1px solid var(--border); }
+  .pipeline-section:last-child { border-bottom: none; }
+  .pipeline-section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+  .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .pipeline-field { display: flex; flex-direction: column; gap: 4px; }
+  .pipeline-field label { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+  .pipeline-field input[type="number"] { font-family: var(--mono); font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); outline: none; width: 100%; transition: border-color 0.15s; }
+  .pipeline-field input[type="number"]:focus { border-color: var(--accent); }
+  .pipeline-field textarea { font-family: var(--mono); font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); outline: none; width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; transition: border-color 0.15s; }
+  .pipeline-field textarea:focus { border-color: var(--accent); }
+  .pipeline-field .field-hint { font-size: 11px; color: var(--text-muted); }
+  .pipeline-protos { grid-column: 1 / -1; }
+  .pipeline-footer { padding: 12px 14px; display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--border); background: var(--bg); }
+  .pipeline-note { font-size: 12px; color: var(--text-muted); flex: 1; }
+  .pipeline-status { font-size: 12px; }
+  .pipeline-status.success { color: var(--green); }
+  .pipeline-status.error { color: var(--red); }
+
+  /* Activity list items */
+  .activity-list { max-height: 380px; overflow-y: auto; }
+  .activity-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border-light); font-size: 13px; }
+  .activity-item:last-child { border-bottom: none; }
+  .activity-item:hover { background: #f6f8fa; }
+  .activity-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+  .activity-icon.retrieval { background: var(--accent-light); color: var(--accent); }
+  .activity-icon.top { background: var(--green-bg); color: var(--green); }
+  .activity-body { flex: 1; min-width: 0; }
+  .activity-text { font-family: var(--mono); font-size: 12px; color: var(--text-secondary); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .activity-meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+
+  /* Content cell */
+  .content-cell { max-width: 480px; font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>memoryd</h1>
+    </div>
+    <div class="sidebar-status">
+      <span class="status-badge down" id="statusBadge"><span class="status-dot"></span><span id="statusLabel">checking</span></span>
+      <div style="margin-top:4px" id="portDisplay"></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-page="overview">
+        <span class="nav-icon">&#9675;</span> Overview
+      </div>
+      <div class="nav-item" data-page="knowledge">
+        <span class="nav-icon">&#9733;</span> Knowledge
+      </div>
+      <div class="nav-item" data-page="export">
+        <span class="nav-icon">&#8681;</span> Export
+      </div>
+      <div class="nav-group-label">Configuration</div>
+      <div class="nav-item" data-page="settings">
+        <span class="nav-icon">&#9881;</span> Settings
+      </div>
+      <div class="nav-item" data-page="pipeline">
+        <span class="nav-icon">&#9783;</span> Pipeline
+      </div>
+      <div class="nav-item" data-page="prompts">
+        <span class="nav-icon">&#9998;</span> Prompts
+      </div>
+      <div class="nav-item" data-page="logs">
+        <span class="nav-icon">&#9776;</span> Logs
+      </div>
+    </nav>
+  </aside>
+
+  <!-- Main content -->
+  <div class="main">
+    <div class="main-inner">
+
+      <!-- PAGE: Overview -->
+      <div class="page active" id="page-overview">
+        <div class="page-title">Overview</div>
+        <div class="stats">
+          <div class="stat-card">
+            <div class="stat-label">Knowledge chunks</div>
+            <div class="stat-value" id="memoryCount">&mdash;</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Knowledge sources</div>
+            <div class="stat-value" id="sourceCount">&mdash;</div>
+            <div class="stat-sub" id="sourceSub"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Retrievals</div>
+            <div class="stat-value" id="retrievalCount">&mdash;</div>
+            <div class="stat-sub" id="retrievalSub"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Quality learning</div>
+            <div class="stat-value" id="learningStatus">&mdash;</div>
+            <div class="stat-sub" id="learningSub"></div>
+            <div class="progress-container" id="learningProgress" style="display:none">
+              <div class="progress-track"><div class="progress-fill" id="learningFill"></div></div>
+            </div>
+          </div>
+          <div class="stat-card" id="stewardCard" style="display:none">
+            <div class="stat-label">Steward (last sweep)</div>
+            <div class="stat-value" id="stewardSummary">&mdash;</div>
+            <div class="stat-sub" id="stewardSub"></div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">Recent retrievals</div>
+            </div>
+            <div class="card">
+              <div id="retrievalList" class="activity-list">
+                <div class="empty-state">No retrievals yet</div>
+              </div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">Top memories</div>
+              <div class="section-meta">by retrieval count</div>
+            </div>
+            <div class="card">
+              <div id="topMemList" class="activity-list">
+                <div class="empty-state">No data yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Knowledge -->
+      <div class="page" id="page-knowledge">
+        <div class="page-title">Knowledge</div>
+        <div class="card" style="margin-bottom:24px">
+          <div class="tabs">
+            <div class="tab active" data-tab="knowledge">Knowledge base</div>
+            <div class="tab" data-tab="sources">Knowledge sources</div>
+          </div>
+
+          <div class="tab-content active" id="tab-knowledge">
+            <div style="padding:14px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)">
+              <select id="sourceFilter" style="font-family:var(--font);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none">
+                <option value="">All sources</option>
+              </select>
+              <input type="text" id="knowledgeSearch" placeholder="Search knowledge..." style="flex:1;font-family:var(--font);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none">
+            </div>
+            <div id="knowledgeList">
+              <div class="empty-state">Select a source or search to browse knowledge</div>
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-sources">
+            <form class="add-source-form" id="addSourceForm" autocomplete="off">
+              <div class="form-group name-field">
+                <label for="sourceName">Name</label>
+                <input type="text" id="sourceName" placeholder="e.g. Company Docs" required>
+              </div>
+              <div class="form-group url-field">
+                <label for="sourceURL">Base URL to crawl</label>
+                <input type="url" id="sourceURL" placeholder="https://docs.example.com" required>
+              </div>
+              <button type="submit" class="btn btn-primary" id="addSourceBtn">Add source</button>
+            </form>
+            <div class="form-message" id="formMessage" style="display:none"></div>
+            <div class="form-divider">or upload files</div>
+            <form class="upload-form" id="uploadForm" autocomplete="off">
+              <div class="form-group name-field">
+                <label for="uploadName">Name</label>
+                <input type="text" id="uploadName" placeholder="e.g. Design Docs" required>
+              </div>
+              <div class="form-group" style="flex:1">
+                <label for="uploadFiles">Files</label>
+                <div class="file-input-wrap">
+                  <input type="file" id="uploadFiles" multiple accept=".md,.txt,.html,.htm,.json,.yaml,.yml,.go,.py,.js,.ts,.rst,.xml,.csv,.toml" required>
+                  <div class="file-count" id="fileCount"></div>
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary" id="uploadBtn">Upload</button>
+            </form>
+            <div class="form-message" id="uploadMessage" style="display:none"></div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>URL</th>
+                  <th>Status</th>
+                  <th>Pages</th>
+                  <th>Memories</th>
+                  <th>Last crawled</th>
+                </tr>
+              </thead>
+              <tbody id="sourceRows">
+                <tr><td colspan="6" class="empty-state">No sources ingested</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Settings -->
+      <div class="page" id="page-settings">
+        <div class="page-title">Settings</div>
+        <div class="card">
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Mode</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field" style="grid-column: 1 / -1">
+                <label for="s_mode">Integration mode</label>
+                <select id="s_mode" style="font-family:var(--font);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;max-width:320px">
+                  <option value="proxy">Proxy – auto read &amp; write</option>
+                  <option value="mcp">MCP – read &amp; write</option>
+                  <option value="mcp-readonly">MCP – read only</option>
+                </select>
+                <span class="field-hint">How memoryd integrates with your coding agent. Restart required.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Database</div>
+            <div style="padding:4px 0 12px;font-size:12px;color:var(--text-muted)">By default memoryd uses an embedded Postgres database. Set a URL to connect to a team Postgres instance instead.</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field" style="grid-column: 1 / -1">
+                <label for="s_postgres_url">Postgres URL <span style="font-weight:400;color:var(--text-muted)">(blank = local embedded)</span></label>
+                <input type="text" id="s_postgres_url" placeholder="postgres://user:pass@host:5432/memoryd" style="font-family:var(--mono);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;width:100%">
+                <span class="field-hint">Stored in the OS keychain. Leave empty for local embedded mode.</span>
+                <span class="field-hint" id="s_db_status" style="margin-top:2px"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">LLM synthesis <span style="font-weight:400;text-transform:none;letter-spacing:0">(distills conversations into knowledge)</span></div>
+            <div style="padding:4px 0 12px;font-size:12px;color:var(--text-muted)">Configure your Anthropic API key for LLM synthesis. Without it, memoryd stores raw exchanges at reduced quality.</div>
+
+            <div style="margin-bottom:16px">
+              <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Anthropic (Haiku)</div>
+              <div class="pipeline-grid">
+                <div class="pipeline-field" style="grid-column: 1 / -1">
+                  <label for="s_anthropic_key">API key</label>
+                  <input type="password" id="s_anthropic_key" placeholder="sk-ant-..." autocomplete="off" style="font-family:var(--mono);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;width:100%;max-width:520px">
+                  <span class="field-hint">Stored in the OS keychain. <span id="s_anthropic_status"></span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pipeline-footer">
+            <span class="pipeline-note" id="settingsNote"></span>
+            <span class="pipeline-status" id="settingsStatus"></span>
+            <button class="btn btn-primary" id="saveSettingsBtn" onclick="saveSettings()">Save settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Pipeline -->
+      <div class="page" id="page-pipeline">
+        <div class="page-title">Pipeline</div>
+        <div class="card">
+          <!-- Noise filter -->
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Noise filter</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field">
+                <label for="p_noise_min_len">Min length (chars)</label>
+                <input type="number" id="p_noise_min_len" min="1" max="500" step="1" value="20">
+                <span class="field-hint">Chunks shorter than this are dropped</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="p_noise_min_alnum">Min alphanumeric ratio</label>
+                <input type="number" id="p_noise_min_alnum" min="0" max="1" step="0.05" value="0.4">
+                <span class="field-hint">0 – 1 · e.g. 0.4 = 40% must be letters/digits</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="p_content_score_gate">Content score gate</label>
+                <input type="number" id="p_content_score_gate" min="0" max="1" step="0.05" value="0">
+                <span class="field-hint">0 = disabled · drop chunks scoring below this</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Content scoring prototypes -->
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Content scoring prototypes</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field pipeline-protos">
+                <label for="p_quality_protos">Quality prototypes (one per line)</label>
+                <textarea id="p_quality_protos" rows="6"></textarea>
+                <span class="field-hint">Chunks semantically close to these score higher. Changes trigger scorer reload.</span>
+              </div>
+              <div class="pipeline-field pipeline-protos">
+                <label for="p_noise_protos">Noise prototypes (one per line)</label>
+                <textarea id="p_noise_protos" rows="4"></textarea>
+                <span class="field-hint">Chunks close to these score lower.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Deduplication -->
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Deduplication</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field">
+                <label for="p_dedup_threshold">Dedup threshold</label>
+                <input type="number" id="p_dedup_threshold" min="0.5" max="1" step="0.01" value="0.92">
+                <span class="field-hint">Cosine ≥ this → duplicate, skip</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="p_source_ext_threshold">Source extension threshold</label>
+                <input type="number" id="p_source_ext_threshold" min="0" max="1" step="0.01" value="0.75">
+                <span class="field-hint">Tag as extending a source memory above this score</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Topic grouping -->
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Topic grouping</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field">
+                <label for="p_topic_boundary">Topic boundary threshold</label>
+                <input type="number" id="p_topic_boundary" min="0" max="1" step="0.05" value="0.65">
+                <span class="field-hint">Cosine below this between consecutive chunks splits a group</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="p_max_group_chars">Max group chars</label>
+                <input type="number" id="p_max_group_chars" min="256" max="16384" step="256" value="2048">
+                <span class="field-hint">Groups are split to stay within this budget</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Steward -->
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Steward <span style="font-weight:400;text-transform:none;letter-spacing:0">(restart required)</span></div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field">
+                <label for="s_interval">Sweep interval (minutes)</label>
+                <input type="number" id="s_interval" min="1" max="1440" step="1" value="60">
+              </div>
+              <div class="pipeline-field">
+                <label for="s_prune_threshold">Prune threshold</label>
+                <input type="number" id="s_prune_threshold" min="0" max="1" step="0.01" value="0.1">
+                <span class="field-hint">Quality score below this → pruned</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="s_merge_threshold">Merge threshold</label>
+                <input type="number" id="s_merge_threshold" min="0.5" max="1" step="0.01" value="0.88">
+                <span class="field-hint">Cosine above this → steward merges memories</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="s_decay_half_days">Decay half-life (days)</label>
+                <input type="number" id="s_decay_half_days" min="1" max="3650" step="1" value="90">
+              </div>
+              <div class="pipeline-field">
+                <label for="s_grace_hours">Grace period (hours)</label>
+                <input type="number" id="s_grace_hours" min="0" max="720" step="1" value="24">
+              </div>
+            </div>
+          </div>
+
+          <div class="pipeline-footer">
+            <span class="pipeline-note" id="pipelineNote"></span>
+            <span class="pipeline-status" id="pipelineStatus"></span>
+            <button class="btn btn-primary" id="savePipelineBtn" onclick="savePipeline()">Save changes</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Prompts -->
+      <div class="page" id="page-prompts">
+        <div class="page-title">Prompts</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;max-width:720px;line-height:1.6">Customise the prompt templates sent to the LLM for each synthesis task. Changes take effect immediately. Use "Reset to default" to revert any prompt to its built-in template.</p>
+        <div class="card">
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Quality Gate &amp; Atomic Decomposition (SynthesizeQA)</div>
+            <div class="pipeline-field pipeline-protos">
+              <label>Used for every proxy-captured exchange — the mandatory Haiku call <span class="prompt-custom-badge" id="badge_qa" style="display:none;margin-left:8px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--accent);color:#fff">customized</span></label>
+              <textarea id="prompt_qa" rows="20" style="background:var(--surface)"></textarea>
+            </div>
+          </div>
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Fragment Merge (Synthesize)</div>
+            <div class="pipeline-field pipeline-protos">
+              <label>Merges related chunks within a topic group into a single entry <span class="prompt-custom-badge" id="badge_merge" style="display:none;margin-left:8px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--accent);color:#fff">customized</span></label>
+              <textarea id="prompt_merge" rows="12" style="background:var(--surface)"></textarea>
+            </div>
+          </div>
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Session Summary (SynthesizeConversation)</div>
+            <div class="pipeline-field pipeline-protos">
+              <label>Distills a multi-turn coding session into structured insights <span class="prompt-custom-badge" id="badge_conversation" style="display:none;margin-left:8px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--accent);color:#fff">customized</span></label>
+              <textarea id="prompt_conversation" rows="18" style="background:var(--surface)"></textarea>
+            </div>
+          </div>
+          <div class="pipeline-footer">
+            <span class="pipeline-note" id="promptNote"></span>
+            <span class="pipeline-status" id="promptStatus"></span>
+            <button class="btn" style="margin-right:8px" onclick="resetPrompts()">Reset all to defaults</button>
+            <button class="btn btn-primary" id="savePromptsBtn" onclick="savePrompts()">Save prompts</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Export -->
+      <div class="page" id="page-export">
+        <div class="page-title">Export</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;max-width:640px;line-height:1.6">Download your accumulated knowledge as a Markdown document. Use it to augment project docs, onboarding guides, or team wikis with real insights captured from coding sessions.</p>
+        <div class="card" style="max-width:560px">
+          <div class="pipeline-section">
+            <div class="pipeline-section-title">Filter</div>
+            <div class="pipeline-grid">
+              <div class="pipeline-field" style="grid-column: 1 / -1">
+                <label for="export_source">Source</label>
+                <select id="export_source" style="font-family:var(--font);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;width:100%">
+                  <option value="">All sources</option>
+                </select>
+                <span class="field-hint">Limit export to memories from a specific source.</span>
+              </div>
+              <div class="pipeline-field">
+                <label for="export_quality">Min quality score</label>
+                <input type="number" id="export_quality" min="0" max="1" step="0.05" value="0" style="font-family:var(--mono);font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;width:100%">
+                <span class="field-hint">0 = include all. Higher values limit to better-scored memories.</span>
+              </div>
+            </div>
+          </div>
+          <div class="pipeline-footer">
+            <span class="pipeline-note" id="exportNote"></span>
+            <span class="pipeline-status" id="exportStatus"></span>
+            <button class="btn btn-primary" id="exportBtn" onclick="doExport()">Download .md</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Logs -->
+      <div class="page" id="page-logs">
+        <div class="page-title">Logs</div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:12px">
+              <label style="font-size:12px;color:var(--text-secondary)">Lines</label>
+              <select id="logLines" style="font-family:var(--font);font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text)">
+                <option value="200">200</option>
+                <option value="500" selected>500</option>
+                <option value="1000">1000</option>
+                <option value="2000">2000</option>
+              </select>
+              <label style="font-size:12px;color:var(--text-secondary)">Filter</label>
+              <input type="text" id="logFilter" placeholder="grep..." style="font-family:var(--mono);font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);width:180px">
+              <label style="font-size:12px;display:flex;align-items:center;gap:4px;color:var(--text-secondary);cursor:pointer">
+                <input type="checkbox" id="logAutoScroll" checked> Auto-scroll
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="logCount" style="font-size:11px;color:var(--text-secondary)"></span>
+              <button class="btn btn-primary" style="font-size:12px;padding:4px 12px" onclick="loadLogs()">Refresh</button>
+            </div>
+          </div>
+          <pre id="logOutput" style="margin:0;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.6;overflow:auto;max-height:calc(100vh - 240px);background:var(--bg);color:var(--text);white-space:pre-wrap;word-break:break-all"></pre>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+// Extract API token from ?token= URL param and persist in sessionStorage.
+(function() {
+  const t = new URLSearchParams(location.search).get('token');
+  if (t) sessionStorage.setItem('memoryd_token', t);
+})();
+function _authHeaders() {
+  const t = sessionStorage.getItem('memoryd_token');
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+function authFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers, _authHeaders());
+  return fetch(url, opts);
+}
+
+// --- Sidebar page navigation ---
+document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('page-' + item.dataset.page).classList.add('active');
+  });
+});
+
+// --- Inner tabs (within a page) ---
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const card = tab.closest('.card');
+    card.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    card.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    card.querySelector('#tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// --- Health ---
+async function checkHealth() {
+  try {
+    const r = await fetch(BASE + '/health');
+    const j = await r.json();
+    const ok = j.status === 'ok';
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge ' + (ok ? 'ok' : 'down');
+    document.getElementById('statusLabel').textContent = ok ? 'healthy' : 'unhealthy';
+    let meta = 'Port ' + (location.port || '7432');
+    if (j.version) meta += ' · v' + j.version;
+    if (j.mode)    meta += ' · ' + j.mode;
+    if (j.uptime_s != null) meta += ' · up ' + fmtUptime(j.uptime_s);
+    document.getElementById('portDisplay').textContent = meta;
+  } catch(e) {
+    document.getElementById('statusBadge').className = 'status-badge down';
+    document.getElementById('statusLabel').textContent = 'unreachable';
+  }
+}
+
+function fmtUptime(s) {
+  if (s < 60)   return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}
+
+// --- Helpers ---
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function fmtTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function scoreBar(score) {
+  const pct = Math.round(score * 100);
+  return '<div class="score-bar">' +
+    '<div class="score-track"><div class="score-fill" style="width:' + pct + '%"></div></div>' +
+    '<span class="score-text">' + score.toFixed(2) + '</span></div>';
+}
+
+function sourceTag(source) {
+  if (!source) return '';
+  const label = source.length > 30 ? source.slice(0, 30) + '...' : source;
+  return '<span class="tag tag-source">' + esc(label) + '</span>';
+}
+
+function statusTag(status) {
+  const cls = status === 'ready' ? 'tag-ready' : status === 'crawling' ? 'tag-crawling' : 'tag-error';
+  return '<span class="tag ' + cls + '">' + esc(status) + '</span>';
+}
+
+// --- Dashboard load ---
+async function loadDashboard() {
+  try {
+    const r = await authFetch(BASE + '/api/dashboard');
+    const d = await r.json();
+
+    // Stats
+    document.getElementById('memoryCount').textContent = d.memory_count || 0;
+
+    document.getElementById('sourceCount').textContent = d.source_count || 0;
+    if (d.sources && d.sources.length > 0) {
+      const crawling = d.sources.filter(s => s.status === 'crawling').length;
+      document.getElementById('sourceSub').textContent = crawling > 0 ? crawling + ' crawling' : 'all ready';
+    }
+
+    const q = d.quality || {};
+    document.getElementById('retrievalCount').textContent = q.event_count || 0;
+    document.getElementById('retrievalSub').textContent = 'across all searches';
+
+    if (q.learning) {
+      document.getElementById('learningStatus').textContent = 'Active';
+      document.getElementById('learningStatus').style.fontSize = '16px';
+      const pct = Math.min(100, Math.round((q.event_count / q.threshold) * 100));
+      document.getElementById('learningSub').textContent = q.event_count + ' / ' + q.threshold + ' events';
+      document.getElementById('learningProgress').style.display = 'block';
+      document.getElementById('learningFill').style.width = pct + '%';
+    } else {
+      document.getElementById('learningStatus').textContent = 'Complete';
+      document.getElementById('learningStatus').style.fontSize = '16px';
+      document.getElementById('learningSub').textContent = 'Quality filtering enabled';
+      document.getElementById('learningProgress').style.display = 'none';
+    }
+
+    // Steward stats
+    const stw = d.steward || {};
+    if (stw.active) {
+      document.getElementById('stewardCard').style.display = '';
+      const total = stw.scored + stw.pruned + stw.merged;
+      document.getElementById('stewardSummary').textContent = total;
+      document.getElementById('stewardSummary').style.fontSize = '16px';
+      const parts = [];
+      if (stw.scored > 0) parts.push(stw.scored + ' scored');
+      if (stw.pruned > 0) parts.push(stw.pruned + ' pruned');
+      if (stw.merged > 0) parts.push(stw.merged + ' merged');
+      document.getElementById('stewardSub').textContent = parts.length ? parts.join(', ') : 'idle';
+    }
+
+    // Recent retrievals
+    const rList = document.getElementById('retrievalList');
+    const retrievals = d.recent_retrievals || [];
+    if (retrievals.length === 0) {
+      rList.innerHTML = '<div class="empty-state">No retrievals yet</div>';
+    } else {
+      rList.innerHTML = retrievals.slice(0, 20).map(r => {
+        const content = esc(r.content || '').slice(0, 120);
+        return '<div class="activity-item">' +
+          '<div class="activity-icon retrieval">&#8635;</div>' +
+          '<div class="activity-body">' +
+            '<div class="activity-text">' + content + '</div>' +
+            '<div class="activity-meta">' +
+              scoreBar(r.score || 0) +
+              '<span class="time-ago">' + fmtTime(r.created_at) + '</span>' +
+              (r.source ? sourceTag(r.source) : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // Top memories
+    const tList = document.getElementById('topMemList');
+    const topMems = d.top_memories || [];
+    if (topMems.length === 0) {
+      tList.innerHTML = '<div class="empty-state">No data yet</div>';
+    } else {
+      tList.innerHTML = topMems.map((m, i) => {
+        const content = esc(m.content || '').slice(0, 120);
+        return '<div class="activity-item">' +
+          '<div class="activity-icon top">' + (i + 1) + '</div>' +
+          '<div class="activity-body">' +
+            '<div class="activity-text">' + content + '</div>' +
+            '<div class="activity-meta">' +
+              '<span class="tag tag-source">' + m.hit_count + ' hits</span>' +
+              (m.source ? sourceTag(m.source) : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // Populate source filter dropdown
+    const select = document.getElementById('sourceFilter');
+    const currentVal = select.value;
+    const sources = d.sources || [];
+    select.innerHTML = '<option value="">All sources</option>';
+    sources.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name + ' (' + s.memory_count + ')';
+      select.appendChild(opt);
+    });
+    select.value = currentVal;
+
+    // Populate export source dropdown
+    populateExportSources(sources);
+
+    // Sources table
+    const sourceBody = document.getElementById('sourceRows');
+    if (sources.length === 0) {
+      sourceBody.innerHTML = '<tr><td colspan="6" class="empty-state">No knowledge sources ingested yet.</td></tr>';
+    } else {
+      sourceBody.innerHTML = sources.map(s => {
+        const url = s.base_url.length > 40 ? s.base_url.slice(0, 40) + '...' : s.base_url;
+        return '<tr>' +
+          '<td style="font-weight:500">' + esc(s.name) + '</td>' +
+          '<td style="font-size:12px;color:var(--text-secondary)">' + esc(url) + '</td>' +
+          '<td>' + statusTag(s.status) + '</td>' +
+          '<td>' + s.page_count + '</td>' +
+          '<td>' + s.memory_count + '</td>' +
+          '<td class="time-ago">' + fmtTime(s.last_crawled) + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+  } catch(e) {
+    console.error('Dashboard load failed:', e);
+  }
+}
+
+// --- Knowledge base ---
+let knowledgeSearchTimeout = null;
+
+document.getElementById('sourceFilter').addEventListener('change', loadKnowledge);
+document.getElementById('knowledgeSearch').addEventListener('input', () => {
+  clearTimeout(knowledgeSearchTimeout);
+  knowledgeSearchTimeout = setTimeout(loadKnowledge, 300);
+});
+
+async function loadKnowledge() {
+  const sourceId = document.getElementById('sourceFilter').value;
+  const search = document.getElementById('knowledgeSearch').value.trim();
+  const list = document.getElementById('knowledgeList');
+
+  list.innerHTML = '<div class="empty-state">Loading...</div>';
+
+  try {
+    let memories = [];
+    if (sourceId) {
+      const r = await authFetch(BASE + '/api/sources/' + sourceId + '/memories');
+      memories = await r.json();
+    } else {
+      const r = await authFetch(BASE + '/api/memories?q=' + encodeURIComponent(search));
+      memories = await r.json();
+    }
+
+    // Client-side filter by search text if both source and search are active.
+    if (sourceId && search) {
+      const lower = search.toLowerCase();
+      memories = memories.filter(m => m.content.toLowerCase().includes(lower));
+    }
+
+    if (!memories || memories.length === 0) {
+      list.innerHTML = '<div class="empty-state">No knowledge chunks found</div>';
+      return;
+    }
+
+    list.innerHTML = memories.map(m => {
+      const pageUrl = (m.metadata && m.metadata.page_url) || '';
+      const sourceName = (m.metadata && m.metadata.source_name) || m.source || '';
+      const content = m.content || '';
+      return '<div class="knowledge-item" data-id="' + esc(m.id) + '">' +
+        '<div class="knowledge-meta">' +
+          '<span class="tag tag-source">' + esc(sourceName) + '</span>' +
+          (pageUrl ? '<span class="knowledge-page" title="' + esc(pageUrl) + '">' + esc(pageUrl) + '</span>' : '') +
+          '<span class="time-ago">' + fmtTime(m.created_at) + '</span>' +
+        '</div>' +
+        '<div class="knowledge-content" id="content-' + esc(m.id) + '">' + esc(content) + '</div>' +
+        '<div class="knowledge-actions">' +
+          '<button class="btn-sm" onclick="toggleEdit(\'' + esc(m.id) + '\', this)">Edit</button>' +
+          '<button class="btn-sm delete" onclick="deleteMemory(\'' + esc(m.id) + '\')">Delete</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="empty-state">Error loading knowledge: ' + esc(e.message) + '</div>';
+  }
+}
+
+function toggleEdit(id, btn) {
+  const el = document.getElementById('content-' + id);
+  if (el.contentEditable === 'true') {
+    // Save.
+    const newContent = el.textContent;
+    el.contentEditable = 'false';
+    btn.textContent = 'Edit';
+    btn.classList.remove('editing');
+    saveMemory(id, newContent);
+  } else {
+    el.contentEditable = 'true';
+    el.focus();
+    btn.textContent = 'Save';
+    btn.classList.add('editing');
+  }
+}
+
+async function saveMemory(id, content) {
+  try {
+    const r = await authFetch(BASE + '/api/memories/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content })
+    });
+    if (!r.ok) {
+      const j = await r.json();
+      alert('Save failed: ' + (j.error || 'Unknown error'));
+    } else {
+      loadDashboard();
+    }
+  } catch(e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function deleteMemory(id) {
+  if (!confirm('Delete this knowledge chunk?')) return;
+  try {
+    await authFetch(BASE + '/api/memories/' + id, { method: 'DELETE' });
+    const el = document.querySelector('[data-id="' + id + '"]');
+    if (el) el.remove();    loadDashboard();  } catch(e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+// --- Add source ---
+document.getElementById('addSourceForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('addSourceBtn');
+  const msg = document.getElementById('formMessage');
+  const nameInput = document.getElementById('sourceName');
+  const urlInput = document.getElementById('sourceURL');
+  const name = nameInput.value.trim();
+  const url = urlInput.value.trim();
+  if (!name || !url) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+  msg.style.display = 'none';
+
+  try {
+    const r = await authFetch(BASE + '/api/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, base_url: url })
+    });
+    const j = await r.json();
+    if (r.ok) {
+      msg.className = 'form-message success';
+      msg.textContent = 'Source added. Crawl started.';
+      msg.style.display = 'block';
+      nameInput.value = '';
+      urlInput.value = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 4000);
+      loadDashboard();
+    } else {
+      msg.className = 'form-message error';
+      msg.textContent = j.error || 'Failed to add source.';
+      msg.style.display = 'block';
+    }
+  } catch(err) {
+    msg.className = 'form-message error';
+    msg.textContent = 'Request failed: ' + err.message;
+    msg.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add source';
+  }
+});
+
+// --- File count label ---
+document.getElementById('uploadFiles').addEventListener('change', function() {
+  const n = this.files.length;
+  document.getElementById('fileCount').textContent = n ? n + ' file' + (n > 1 ? 's' : '') + ' selected' : '';
+});
+
+// --- Upload files ---
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('uploadBtn');
+  const msg = document.getElementById('uploadMessage');
+  const nameInput = document.getElementById('uploadName');
+  const fileInput = document.getElementById('uploadFiles');
+  const name = nameInput.value.trim();
+  if (!name || !fileInput.files.length) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+  msg.style.display = 'none';
+
+  try {
+    const fd = new FormData();
+    fd.append('name', name);
+    for (const f of fileInput.files) {
+      fd.append('files', f);
+    }
+    const r = await authFetch(BASE + '/api/sources/upload', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (r.ok) {
+      msg.className = 'form-message success';
+      msg.textContent = j.message || 'Files uploaded.';
+      msg.style.display = 'block';
+      nameInput.value = '';
+      fileInput.value = '';
+      document.getElementById('fileCount').textContent = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 4000);
+      loadDashboard();
+    } else {
+      msg.className = 'form-message error';
+      msg.textContent = j.error || 'Upload failed.';
+      msg.style.display = 'block';
+    }
+  } catch(err) {
+    msg.className = 'form-message error';
+    msg.textContent = 'Request failed: ' + err.message;
+    msg.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Upload';
+  }
+});
+
+// --- Pipeline config ---
+async function loadPipelineConfig() {
+  try {
+    const r = await authFetch(BASE + '/api/pipeline');
+    if (!r.ok) return;
+    const d = await r.json();
+    const p = d.pipeline || {};
+    const s = d.steward || {};
+
+    document.getElementById('p_noise_min_len').value = p.noise_min_len ?? 20;
+    document.getElementById('p_noise_min_alnum').value = p.noise_min_alnum_ratio ?? 0.4;
+    document.getElementById('p_content_score_gate').value = p.content_score_gate ?? 0;
+    document.getElementById('p_dedup_threshold').value = p.dedup_threshold ?? 0.92;
+    document.getElementById('p_source_ext_threshold').value = p.source_extension_threshold ?? 0.75;
+    document.getElementById('p_topic_boundary').value = p.topic_boundary_threshold ?? 0.65;
+    document.getElementById('p_max_group_chars').value = p.max_group_chars ?? 2048;
+    document.getElementById('p_quality_protos').value = (p.quality_protos || []).join('\n');
+    document.getElementById('p_noise_protos').value = (p.noise_protos || []).join('\n');
+
+    document.getElementById('s_interval').value = s.interval_minutes ?? 60;
+    document.getElementById('s_prune_threshold').value = s.prune_threshold ?? 0.1;
+    document.getElementById('s_merge_threshold').value = s.merge_threshold ?? 0.88;
+    document.getElementById('s_decay_half_days').value = s.decay_half_days ?? 90;
+    document.getElementById('s_grace_hours').value = s.grace_period_hours ?? 24;
+  } catch(e) {
+    console.error('Pipeline config load failed:', e);
+  }
+}
+
+async function loadPrompts() {
+  try {
+    const r = await authFetch(BASE + '/api/prompts');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('prompt_qa').value = d.qa || '';
+    document.getElementById('prompt_merge').value = d.merge || '';
+    document.getElementById('prompt_conversation').value = d.conversation || '';
+    // Show/hide customization badges.
+    if (d.customized) {
+      ['qa','merge','conversation'].forEach(k => {
+        const badge = document.getElementById('badge_' + k);
+        if (badge) badge.style.display = d.customized[k] ? 'inline' : 'none';
+      });
+    }
+  } catch(e) {
+    console.error('Prompts load failed:', e);
+  }
+}
+
+async function savePrompts() {
+  const btn = document.getElementById('savePromptsBtn');
+  const status = document.getElementById('promptStatus');
+  const note = document.getElementById('promptNote');
+  btn.disabled = true;
+  status.className = 'pipeline-status';
+  status.textContent = 'Saving…';
+  note.textContent = '';
+  try {
+    const body = {
+      qa: document.getElementById('prompt_qa').value,
+      merge: document.getElementById('prompt_merge').value,
+      conversation: document.getElementById('prompt_conversation').value,
+    };
+    const r = await authFetch(BASE + '/api/prompts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const d = await r.json();
+    if (r.ok) {
+      status.textContent = 'Saved';
+      status.className = 'pipeline-status pipeline-status-ok';
+      if (d.note) note.textContent = d.note;
+      loadPrompts(); // refresh badges
+    } else {
+      status.textContent = 'Error';
+      status.className = 'pipeline-status pipeline-status-err';
+      note.textContent = d.error || 'Save failed';
+    }
+  } catch(e) {
+    status.textContent = 'Error';
+    status.className = 'pipeline-status pipeline-status-err';
+    note.textContent = e.message;
+  }
+  btn.disabled = false;
+  setTimeout(() => { status.textContent = ''; note.textContent = ''; }, 4000);
+}
+
+async function resetPrompts() {
+  if (!confirm('Reset all prompts to their built-in defaults? This cannot be undone.')) return;
+  const status = document.getElementById('promptStatus');
+  const note = document.getElementById('promptNote');
+  status.textContent = 'Resetting…';
+  try {
+    const r = await authFetch(BASE + '/api/prompts', {method:'DELETE'});
+    const d = await r.json();
+    if (r.ok) {
+      status.textContent = 'Reset to defaults';
+      status.className = 'pipeline-status pipeline-status-ok';
+      if (d.note) note.textContent = d.note;
+      loadPrompts(); // reload defaults into textareas
+    } else {
+      status.textContent = 'Error';
+      status.className = 'pipeline-status pipeline-status-err';
+      note.textContent = d.error || 'Reset failed';
+    }
+  } catch(e) {
+    status.textContent = 'Error';
+    status.className = 'pipeline-status pipeline-status-err';
+    note.textContent = e.message;
+  }
+  setTimeout(() => { status.textContent = ''; note.textContent = ''; }, 4000);
+}
+
+async function savePipeline() {
+  const btn = document.getElementById('savePipelineBtn');
+  const status = document.getElementById('pipelineStatus');
+  const note = document.getElementById('pipelineNote');
+
+  btn.disabled = true;
+  status.className = 'pipeline-status';
+  status.textContent = 'Saving…';
+  note.textContent = '';
+
+  const qualityLines = document.getElementById('p_quality_protos').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const noiseLines = document.getElementById('p_noise_protos').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  // Return undefined for empty/NaN — JSON.stringify omits undefined fields,
+  // so the server's existing config values are preserved for missing fields.
+  const num = (id) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? undefined : v; };
+  const int = (id) => { const v = parseInt(document.getElementById(id).value); return isNaN(v) ? undefined : v; };
+
+  // Client-side range check: validate all number inputs using their min/max attributes.
+  const inputs = document.querySelectorAll('#pipelineForm input[type="number"]');
+  for (const inp of inputs) {
+    const v = parseFloat(inp.value);
+    if (isNaN(v)) continue;
+    const min = inp.hasAttribute('min') ? parseFloat(inp.min) : -Infinity;
+    const max = inp.hasAttribute('max') ? parseFloat(inp.max) : Infinity;
+    if (v < min || v > max) {
+      status.className = 'pipeline-status error';
+      status.textContent = `${inp.previousElementSibling?.textContent || inp.id}: value ${v} is out of range [${inp.min}, ${inp.max}]`;
+      btn.disabled = false;
+      return;
+    }
+  }
+
+  const payload = {
+    pipeline: {
+      noise_min_len: int('p_noise_min_len'),
+      noise_min_alnum_ratio: num('p_noise_min_alnum'),
+      content_score_gate: num('p_content_score_gate'),
+      dedup_threshold: num('p_dedup_threshold'),
+      source_extension_threshold: num('p_source_ext_threshold'),
+      topic_boundary_threshold: num('p_topic_boundary'),
+      max_group_chars: int('p_max_group_chars'),
+      quality_protos: qualityLines,
+      noise_protos: noiseLines,
+    },
+    steward: {
+      interval_minutes: int('s_interval'),
+      prune_threshold: num('s_prune_threshold'),
+      merge_threshold: num('s_merge_threshold'),
+      decay_half_days: int('s_decay_half_days'),
+      grace_period_hours: int('s_grace_hours'),
+    }
+  };
+
+  try {
+    const r = await authFetch(BASE + '/api/pipeline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (r.ok) {
+      status.className = 'pipeline-status success';
+      status.textContent = j.scorer_reloaded ? 'Saved · scorer reloaded' : 'Saved';
+      if (j.note) note.textContent = j.note;
+    } else {
+      status.className = 'pipeline-status error';
+      status.textContent = j.error || 'Save failed';
+    }
+  } catch(e) {
+    status.className = 'pipeline-status error';
+    status.textContent = 'Request failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { status.textContent = ''; note.textContent = ''; }, 5000);
+  }
+}
+
+// --- Settings ---
+async function loadSettings() {
+  try {
+    const r = await authFetch(BASE + '/api/settings');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    document.getElementById('s_mode').value = d.mode || 'proxy';
+
+    // Database
+    const db = d.database || {};
+    document.getElementById('s_postgres_url').value = '';
+    document.getElementById('s_postgres_url').placeholder = db.url_masked || 'postgres://user:pass@host:5432/memoryd';
+    const dbStatusEl = document.getElementById('s_db_status');
+    if (db.mode === 'team') {
+      dbStatusEl.textContent = '✓ Team Postgres';
+      dbStatusEl.style.color = 'var(--green)';
+    } else {
+      dbStatusEl.textContent = '✓ Local embedded';
+      dbStatusEl.style.color = 'var(--green)';
+    }
+
+    // Anthropic
+    const anth = d.anthropic || {};
+    document.getElementById('s_anthropic_key').value = '';
+    document.getElementById('s_anthropic_key').placeholder = anth.key_masked || 'sk-ant-...';
+    document.getElementById('s_anthropic_status').textContent = anth.configured ? '✓ Configured' : '';
+    document.getElementById('s_anthropic_status').style.color = anth.configured ? 'var(--green)' : '';
+  } catch(e) {
+    console.error('Settings load failed:', e);
+  }
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('saveSettingsBtn');
+  const status = document.getElementById('settingsStatus');
+  const note = document.getElementById('settingsNote');
+
+  btn.disabled = true;
+  status.className = 'pipeline-status';
+  status.textContent = 'Saving…';
+  note.textContent = '';
+
+  const payload = {};
+
+  // Mode — always send.
+  payload.mode = document.getElementById('s_mode').value;
+
+  // Postgres URL — only send if user typed something.
+  const pgURL = document.getElementById('s_postgres_url').value.trim();
+  if (pgURL) payload.postgres_url = pgURL;
+
+  // Anthropic key — only send if user typed something.
+  const anthropicKey = document.getElementById('s_anthropic_key').value.trim();
+  if (anthropicKey) payload.anthropic_key = anthropicKey;
+
+  try {
+    const r = await authFetch(BASE + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (r.ok) {
+      status.className = 'pipeline-status success';
+      status.textContent = '✓ Saved';
+      if (j.need_restart) {
+        note.textContent = 'Restart the daemon for changes to take effect.';
+      }
+      // Refresh settings to show updated masked values.
+      setTimeout(loadSettings, 500);
+    } else {
+      status.className = 'pipeline-status error';
+      status.textContent = j.error || 'Save failed';
+    }
+  } catch(e) {
+    status.className = 'pipeline-status error';
+    status.textContent = 'Request failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { status.textContent = ''; note.textContent = ''; }, 8000);
+  }
+}
+
+// --- Export ---
+function populateExportSources(sources) {
+  const sel = document.getElementById('export_source');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All sources</option>';
+  // Add "captured" for agent-captured memories.
+  const opt0 = document.createElement('option');
+  opt0.value = 'claude-code';
+  opt0.textContent = 'Agent-captured';
+  sel.appendChild(opt0);
+  (sources || []).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = 'source:' + s.name;
+    opt.textContent = s.name + ' (' + s.memory_count + ' memories)';
+    sel.appendChild(opt);
+  });
+  sel.value = cur;
+}
+
+async function doExport() {
+  const btn = document.getElementById('exportBtn');
+  const status = document.getElementById('exportStatus');
+  const note = document.getElementById('exportNote');
+  btn.disabled = true;
+  btn.textContent = 'Exporting...';
+  status.textContent = '';
+  note.textContent = '';
+
+  const source = document.getElementById('export_source').value;
+  const minQ = document.getElementById('export_quality').value;
+
+  const params = new URLSearchParams();
+  if (source) params.set('source', source);
+  if (minQ && parseFloat(minQ) > 0) params.set('min_quality', minQ);
+
+  try {
+    const r = await authFetch(BASE + '/api/export?' + params.toString());
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('text/markdown')) {
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'memoryd-export.md';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      status.className = 'pipeline-status success';
+      status.textContent = '\u2713 Downloaded';
+    } else {
+      const j = await r.json();
+      status.className = 'pipeline-status error';
+      status.textContent = j.error || 'Export failed';
+    }
+  } catch(e) {
+    status.className = 'pipeline-status error';
+    status.textContent = 'Request failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Download .md';
+    setTimeout(() => { status.textContent = ''; }, 5000);
+  }
+}
+
+// Init
+checkHealth();
+loadDashboard();
+loadKnowledge();
+loadPipelineConfig();
+loadPrompts();
+loadSettings();
+setInterval(checkHealth, 10000);
+setInterval(loadDashboard, 15000);
+
+// --- Logs ---
+let _logAutoRefresh = null;
+async function loadLogs() {
+  try {
+    const n = document.getElementById('logLines').value || 500;
+    const r = await authFetch(BASE + '/api/logs?lines=' + n);
+    const j = await r.json();
+    const lines = j.lines || [];
+    const filter = (document.getElementById('logFilter').value || '').toLowerCase();
+    const filtered = filter ? lines.filter(l => l.toLowerCase().includes(filter)) : lines;
+    const out = document.getElementById('logOutput');
+    out.innerHTML = filtered.map(escapeLogLine).join('\n');
+    document.getElementById('logCount').textContent = filtered.length + (filter ? ' / ' + lines.length : '') + ' lines';
+    if (document.getElementById('logAutoScroll').checked) {
+      out.scrollTop = out.scrollHeight;
+    }
+  } catch(e) {
+    document.getElementById('logOutput').textContent = 'Failed to load logs: ' + e.message;
+  }
+}
+function escapeLogLine(line) {
+  const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if (/\b(error|panic|fatal)\b/i.test(line)) return '<span style="color:#ef4444">' + esc + '</span>';
+  if (/\b(warn|warning)\b/i.test(line)) return '<span style="color:#f59e0b">' + esc + '</span>';
+  return esc;
+}
+// Auto-refresh logs when the logs page is active
+document.getElementById('logFilter').addEventListener('input', loadLogs);
+document.getElementById('logLines').addEventListener('change', loadLogs);
+// Start/stop auto-refresh based on active page
+function updateLogAutoRefresh() {
+  const logsActive = document.getElementById('page-logs').classList.contains('active');
+  if (logsActive && !_logAutoRefresh) {
+    loadLogs();
+    _logAutoRefresh = setInterval(loadLogs, 3000);
+  } else if (!logsActive && _logAutoRefresh) {
+    clearInterval(_logAutoRefresh);
+    _logAutoRefresh = null;
+  }
+}
+document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+  item.addEventListener('click', updateLogAutoRefresh);
+});
+</script>
+</body>
+</html>

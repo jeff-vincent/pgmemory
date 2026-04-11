@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "memoryd": {
+      "command": "memoryd",
+      "args": ["mcp"],
+      "type": "stdio"
+    }
+  }
+}
