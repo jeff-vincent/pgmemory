@@ -5,7 +5,7 @@ import "strings"
 // proceduralAsstPrefixes are assistant response openings that almost always
 // signal procedural narration — "I've done X", "I'll do Y" — with no durable
 // technical knowledge. Seeded from corpus eval analysis; refine by running
-// `memoryd analyze-rejections` against an accumulated rejection log.
+// `pgmemory analyze-rejections` against an accumulated rejection log.
 var proceduralAsstPrefixes = []string{
 	"i'll ",
 	"i will ",

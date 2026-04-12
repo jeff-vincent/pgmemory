@@ -597,6 +597,26 @@ func (s *PostgresStore) textSearch(ctx context.Context, query string, topK int) 
 	return results, rows.Err()
 }
 
+// AverageRetrievalScore returns the mean retrieval score (cosine similarity)
+// across all retrieval events for a given memory. Returns (0, false, nil) when
+// the memory has never been retrieved. This is intentionally not on the Store
+// or QualityStore interfaces — callers use a type assertion so the embedded
+// path degrades gracefully.
+func (s *PostgresStore) AverageRetrievalScore(ctx context.Context, id primitive.ObjectID) (float64, bool, error) {
+	var avg *float64
+	err := s.pool.QueryRow(ctx,
+		`SELECT AVG(score) FROM retrieval_events WHERE memory_id = $1`,
+		id.Hex(),
+	).Scan(&avg)
+	if err != nil {
+		return 0, false, fmt.Errorf("average retrieval score: %w", err)
+	}
+	if avg == nil {
+		return 0, false, nil
+	}
+	return *avg, true, nil
+}
+
 // CheckVectorIndex verifies pgvector is available. For Postgres, this is
 // always true after successful migration.
 func (s *PostgresStore) CheckVectorIndex(ctx context.Context) error {

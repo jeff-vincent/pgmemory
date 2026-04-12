@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>memoryd</title>
+<title>pgmemory</title>
 <style>
   :root {
     --bg: #f8f9fa;
@@ -213,7 +213,7 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <h1>memoryd</h1>
+      <h1>pgmemory</h1>
     </div>
     <div class="sidebar-status">
       <span class="status-badge down" id="statusBadge"><span class="status-dot"></span><span id="statusLabel">checking</span></span>
@@ -390,18 +390,18 @@
                   <option value="mcp">MCP – read &amp; write</option>
                   <option value="mcp-readonly">MCP – read only</option>
                 </select>
-                <span class="field-hint">How memoryd integrates with your coding agent. Restart required.</span>
+                <span class="field-hint">How pgmemory integrates with your coding agent. Restart required.</span>
               </div>
             </div>
           </div>
 
           <div class="pipeline-section">
             <div class="pipeline-section-title">Database</div>
-            <div style="padding:4px 0 12px;font-size:12px;color:var(--text-muted)">By default memoryd uses an embedded Postgres database. Set a URL to connect to a team Postgres instance instead.</div>
+            <div style="padding:4px 0 12px;font-size:12px;color:var(--text-muted)">By default pgmemory uses an embedded Postgres database. Set a URL to connect to a team Postgres instance instead.</div>
             <div class="pipeline-grid">
               <div class="pipeline-field" style="grid-column: 1 / -1">
                 <label for="s_postgres_url">Postgres URL <span style="font-weight:400;color:var(--text-muted)">(blank = local embedded)</span></label>
-                <input type="text" id="s_postgres_url" placeholder="postgres://user:pass@host:5432/memoryd" style="font-family:var(--mono);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;width:100%">
+                <input type="text" id="s_postgres_url" placeholder="postgres://user:pass@host:5432/pgmemory" style="font-family:var(--mono);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;width:100%">
                 <span class="field-hint">Stored in the OS keychain. Leave empty for local embedded mode.</span>
                 <span class="field-hint" id="s_db_status" style="margin-top:2px"></span>
               </div>
@@ -410,7 +410,7 @@
 
           <div class="pipeline-section">
             <div class="pipeline-section-title">LLM synthesis <span style="font-weight:400;text-transform:none;letter-spacing:0">(distills conversations into knowledge)</span></div>
-            <div style="padding:4px 0 12px;font-size:12px;color:var(--text-muted)">Configure your Anthropic API key for LLM synthesis. Without it, memoryd stores raw exchanges at reduced quality.</div>
+            <div style="padding:4px 0 12px;font-size:12px;color:var(--text-muted)">Configure your Anthropic API key for LLM synthesis. Without it, pgmemory stores raw exchanges at reduced quality.</div>
 
             <div style="margin-bottom:16px">
               <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Anthropic (Haiku)</div>
@@ -648,10 +648,10 @@ const BASE = '';
 // Extract API token from ?token= URL param and persist in sessionStorage.
 (function() {
   const t = new URLSearchParams(location.search).get('token');
-  if (t) sessionStorage.setItem('memoryd_token', t);
+  if (t) sessionStorage.setItem('pgmemory_token', t);
 })();
 function _authHeaders() {
-  const t = sessionStorage.getItem('memoryd_token');
+  const t = sessionStorage.getItem('pgmemory_token');
   return t ? { 'Authorization': 'Bearer ' + t } : {};
 }
 function authFetch(url, opts) {
@@ -1273,7 +1273,7 @@ async function loadSettings() {
     // Database
     const db = d.database || {};
     document.getElementById('s_postgres_url').value = '';
-    document.getElementById('s_postgres_url').placeholder = db.url_masked || 'postgres://user:pass@host:5432/memoryd';
+    document.getElementById('s_postgres_url').placeholder = db.url_masked || 'postgres://user:pass@host:5432/pgmemory';
     const dbStatusEl = document.getElementById('s_db_status');
     if (db.mode === 'team') {
       dbStatusEl.textContent = '✓ Team Postgres';
@@ -1388,7 +1388,7 @@ async function doExport() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'memoryd-export.md';
+      a.download = 'pgmemory-export.md';
       document.body.appendChild(a);
       a.click();
       a.remove();

@@ -1,7 +1,7 @@
 {
   "servers": {
-    "memoryd": {
-      "command": "memoryd",
+    "pgmemory": {
+      "command": "pgmemory",
       "args": ["mcp"],
       "type": "stdio"
     }

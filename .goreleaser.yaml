@@ -2,16 +2,16 @@
 
 version: 2
 
-project_name: memoryd
+project_name: pgmemory
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: memoryd
-    binary: memoryd
-    main: ./cmd/memoryd
+  - id: pgmemory
+    binary: pgmemory
+    main: ./cmd/pgmemory
     env:
       - CGO_ENABLED=0
     goos:
@@ -50,10 +50,10 @@ changelog:
 
 release:
   github:
-    owner: memory-daemon
-    name: memoryd
+    owner: jeff-vincent
+    name: pgmemory
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
   extra_files:
-    - glob: dist/memoryd-tray-*
+    - glob: dist/pgmemory-tray-*

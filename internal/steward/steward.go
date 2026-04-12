@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/embedding"
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -74,6 +74,13 @@ type Stats struct {
 func (s Stats) String() string {
 	return fmt.Sprintf("scored=%d pruned=%d merged=%d elapsed=%s",
 		s.Scored, s.Pruned, s.Merged, s.Elapsed.Round(time.Millisecond))
+}
+
+// scoreQuerier is satisfied by PostgresStore (and any future store that
+// tracks per-retrieval scores). The Steward uses a type assertion so the
+// embedded path degrades to frequency-based scoring without any interface change.
+type scoreQuerier interface {
+	AverageRetrievalScore(ctx context.Context, id primitive.ObjectID) (float64, bool, error)
 }
 
 // Steward is a long-running background service that maintains memory quality.
@@ -226,6 +233,8 @@ func (s *Steward) scoreMemories(ctx context.Context) (int, error) {
 		}
 	}
 
+	sq, hasSQ := s.store.(scoreQuerier)
+
 	now := s.now()
 	scored := 0
 
@@ -236,9 +245,19 @@ func (s *Steward) scoreMemories(ctx context.Context) (int, error) {
 		default:
 		}
 
-		// Base score from hit frequency (0.0 to 1.0).
+		// Base score: average retrieval similarity when available (preferred),
+		// falling back to normalized hit frequency. A memory retrieved at high
+		// cosine similarity is more valuable than one retrieved often at low
+		// similarity — this is the right signal for non-obvious facts.
 		var baseScore float64
-		if m.HitCount > 0 {
+		if hasSQ && m.HitCount > 0 {
+			if avg, ok, err := sq.AverageRetrievalScore(ctx, m.ID); err == nil && ok {
+				baseScore = avg
+			} else {
+				// Fallback: frequency-normalized score.
+				baseScore = math.Log2(float64(m.HitCount)+1) / math.Log2(float64(maxHits)+1)
+			}
+		} else if m.HitCount > 0 {
 			baseScore = math.Log2(float64(m.HitCount)+1) / math.Log2(float64(maxHits)+1)
 		} else {
 			baseScore = 0.5 // benefit of doubt for new memories

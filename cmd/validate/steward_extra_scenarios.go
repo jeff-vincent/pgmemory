@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/steward"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/steward"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -34,7 +34,7 @@ func scenarioStewardBatchLimit(ctx context.Context) error {
 
 	// Insert 20 distinct memories.
 	for i := 0; i < totalMemories; i++ {
-		content := fmt.Sprintf("Unique technical note %d: this memory describes a specific implementation detail about component number %d in the memoryd pipeline.", i, i)
+		content := fmt.Sprintf("Unique technical note %d: this memory describes a specific implementation detail about component number %d in the pgmemory pipeline.", i, i)
 		vec, _ := emb.Embed(ctx, content)
 		_ = st.Insert(ctx, store.Memory{
 			ID:        primitive.NewObjectID(),
@@ -87,7 +87,7 @@ func scenarioStewardDecayMonotonic(ctx context.Context) error {
 	st1 := newMemStore()
 	swd1 := steward.New(cfg, st1, emb)
 
-	content := "The memoryd quality steward sweeps hourly, scoring and pruning memories based on age and retrieval frequency using exponential decay."
+	content := "The pgmemory quality steward sweeps hourly, scoring and pruning memories based on age and retrieval frequency using exponential decay."
 	vec, _ := emb.Embed(ctx, content)
 	_ = st1.Insert(ctx, store.Memory{
 		ID:        primitive.NewObjectID(),

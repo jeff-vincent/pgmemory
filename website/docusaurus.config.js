@@ -4,13 +4,13 @@ import rehypeKatex from 'rehype-katex';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'memoryd',
+  title: 'pgmemory',
   tagline: 'Shared knowledge for engineering teams — built automatically from the work you already do',
   favicon: 'img/favicon.ico',
-  url: 'https://memory-daemon.github.io',
-  baseUrl: '/memoryd/',
-  organizationName: 'memory-daemon',
-  projectName: 'memoryd',
+  url: 'https://jeff-vincent.github.io',
+  baseUrl: '/pgmemory/',
+  organizationName: 'jeff-vincent',
+  projectName: 'pgmemory',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
@@ -31,7 +31,7 @@ const config = {
         docs: {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
-          editUrl: 'https://github.com/memory-daemon/memoryd/tree/main/website/',
+          editUrl: 'https://github.com/jeff-vincent/pgmemory/tree/main/website/',
           remarkPlugins: [remarkMath],
           rehypePlugins: [rehypeKatex],
         },
@@ -51,15 +51,15 @@ const config = {
         respectPrefersColorScheme: true,
       },
       navbar: {
-        title: 'memoryd',
+        title: 'pgmemory',
         items: [
           { type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Docs' },
-          { href: 'https://github.com/memory-daemon/memoryd', label: 'GitHub', position: 'right' },
+          { href: 'https://github.com/jeff-vincent/pgmemory', label: 'GitHub', position: 'right' },
         ],
       },
       footer: {
         style: 'dark',
-        copyright: `Copyright © ${new Date().getFullYear()} memoryd.`,
+        copyright: `Copyright © ${new Date().getFullYear()} pgmemory.`,
       },
     }),
 };

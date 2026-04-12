@@ -12,7 +12,7 @@ import (
 )
 
 // Server implements the MCP protocol over stdio, delegating to the
-// memoryd daemon's HTTP API.
+// pgmemory daemon's HTTP API.
 type Server struct {
 	baseURL  string
 	client   *http.Client
@@ -136,7 +136,7 @@ func (s *Server) handleInitialize(id any, params json.RawMessage) *jsonRPCRespon
 				"tools": map[string]any{},
 			},
 			"serverInfo": map[string]any{
-				"name":    "memoryd",
+				"name":    "pgmemory",
 				"version": "1.0.0",
 			},
 		},
@@ -419,7 +419,7 @@ func (s *Server) callSearch(args map[string]any) (string, bool) {
 	body, _ := json.Marshal(payload)
 	resp, err := s.apiPost(s.url("/api/search"), "application/json", body)
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -451,7 +451,7 @@ func (s *Server) callStore(args map[string]any) (string, bool) {
 	body, _ := json.Marshal(map[string]string{"content": content, "source": source})
 	resp, err := s.apiPost(s.url("/api/store"), "application/json", body)
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -480,7 +480,7 @@ func (s *Server) callList(args map[string]any) (string, bool) {
 
 	resp, err := s.apiGet(url)
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -516,7 +516,7 @@ func (s *Server) callDelete(args map[string]any) (string, bool) {
 
 	resp, err := s.apiDelete(s.url("/api/memories/" + id))
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -558,7 +558,7 @@ func (s *Server) callSourceIngest(args map[string]any) (string, bool) {
 	body, _ := json.Marshal(payload)
 	resp, err := s.apiPost(s.url("/api/sources"), "application/json", body)
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -602,7 +602,7 @@ func (s *Server) callSourceUpload(args map[string]any) (string, bool) {
 	body, _ := json.Marshal(payload)
 	resp, err := s.apiPost(s.url("/api/sources/upload"), "application/json", body)
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -619,7 +619,7 @@ func (s *Server) callSourceUpload(args map[string]any) (string, bool) {
 func (s *Server) callSourceList(args map[string]any) (string, bool) {
 	resp, err := s.apiGet(s.url("/api/sources"))
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -646,7 +646,7 @@ func (s *Server) callSourceRemove(args map[string]any) (string, bool) {
 
 	resp, err := s.apiDelete(s.url("/api/sources/" + id))
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -660,7 +660,7 @@ func (s *Server) callSourceRemove(args map[string]any) (string, bool) {
 func (s *Server) callQualityStats(args map[string]any) (string, bool) {
 	resp, err := s.apiGet(s.url("/api/quality"))
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 
@@ -678,7 +678,7 @@ func (s *Server) callQualityStats(args map[string]any) (string, bool) {
 func (s *Server) callDatabaseList(args map[string]any) (string, bool) {
 	resp, err := s.apiGet(s.url("/api/databases"))
 	if err != nil {
-		return fmt.Sprintf("daemon not reachable: %v (is memoryd running?)", err), true
+		return fmt.Sprintf("daemon not reachable: %v (is pgmemory running?)", err), true
 	}
 	defer resp.Body.Close()
 

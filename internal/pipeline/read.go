@@ -3,10 +3,10 @@ package pipeline
 import (
 	"context"
 
-	"github.com/memory-daemon/memoryd/internal/config"
-	"github.com/memory-daemon/memoryd/internal/embedding"
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 )
 
 // ReadPipeline handles the pre-prompt path: embed the user message,

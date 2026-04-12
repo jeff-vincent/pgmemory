@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/memory-daemon/memoryd/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
 )
 
 // scenarioBoundaryFiltering verifies the minContentLen filter at both sides of the boundary.
@@ -51,7 +51,7 @@ func scenarioBulkDedup(ctx context.Context) error {
 	emb := newHashEmbedder(128)
 	wp := pipeline.NewWritePipeline(emb, st)
 
-	content := "The memoryd proxy intercepts Anthropic API calls on port 7432 and enriches incoming prompts with retrieved context from MongoDB before forwarding to the upstream model."
+	content := "The pgmemory proxy intercepts Anthropic API calls on port 7432 and enriches incoming prompts with retrieved context from MongoDB before forwarding to the upstream model."
 
 	var totalStored, totalDuped int
 	const writes = 10

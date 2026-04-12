@@ -5,17 +5,17 @@ set -euo pipefail
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/jeff-vincent/pgmemory/main/install.sh | bash
-#   curl -fsSL ... | bash -s -- --postgres "postgres://user:pass@host:5432/db"
+#   curl -fsSL ... | bash -s -- --atlas "mongodb+srv://..."
 
 REPO="jeff-vincent/pgmemory"
-POSTGRES_URI=""
+ATLAS_URI=""
 INSTALL_DIR="/usr/local/bin"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --postgres) POSTGRES_URI="$2"; shift 2 ;;
-    --dir)      INSTALL_DIR="$2"; shift 2 ;;
-    *) echo "Unknown option: $1"; echo "Usage: $0 [--postgres <uri>] [--dir <install_path>]"; exit 1 ;;
+    --atlas)   ATLAS_URI="$2"; shift 2 ;;
+    --dir)     INSTALL_DIR="$2"; shift 2 ;;
+    *) echo "Unknown option: $1"; echo "Usage: $0 [--atlas <uri>] [--dir <install_path>]"; exit 1 ;;
   esac
 done
 
@@ -114,8 +114,8 @@ else
   ok "llama-server → $INSTALL_DIR/llama-server"
 fi
 
-if [[ -n "$POSTGRES_URI" ]]; then
-  ok "Using external PostgreSQL"
+if [[ -n "$ATLAS_URI" ]]; then
+  ok "Using Atlas connection string"
 fi
 
 # ── Download release ───────────────────────────────────────────────
@@ -189,16 +189,18 @@ fi
 trap - EXIT
 rm -rf "$TMPDIR_DL"
 
-# ── Database ───────────────────────────────────────────────────────
+# ── MongoDB ────────────────────────────────────────────────────────
 
-step "Database"
+step "MongoDB"
 
-if [[ -n "$POSTGRES_URI" ]]; then
-  ok "Using external PostgreSQL: ${POSTGRES_URI:0:30}..."
-  info "Ensure pgvector extension is available on the target database"
+if [[ -n "$ATLAS_URI" ]]; then
+  MONGO_URI="$ATLAS_URI"
+  ok "Using Atlas: ${ATLAS_URI:0:30}..."
+  info "Ensure you have a vector search index named 'vector_index'"
+  info "on the 'memories' collection (numDimensions: 1024, similarity: cosine)"
 else
-  ok "Using embedded PostgreSQL (no external database needed)"
-  info "Data will be stored in ~/.pgmemory/data/"
+  MONGO_URI=""
+  ok "Skipped — connect from the Pgmemory menu bar app after install"
 fi
 
 # ── Embedding model ────────────────────────────────────────────────
@@ -210,7 +212,7 @@ mkdir -p "$MODEL_DIR"
 if [[ -f "$MODEL_PATH" ]]; then
   ok "Model already downloaded"
 else
-  info "Downloading voyage-4-nano (Q8_0, ~354MB)..."
+  info "Downloading voyage-4-nano (Q8_0, ~70MB)..."
   $DOWNLOAD_PROGRESS -o "$MODEL_PATH" "$MODEL_URL"
   ok "Model downloaded"
 fi
@@ -221,55 +223,49 @@ step "Config"
 
 mkdir -p "$MEMORYD_DIR"
 
-if [[ -n "$POSTGRES_URI" ]]; then
-  # Store Postgres URI securely in OS keychain.
+if [[ -n "$MONGO_URI" ]]; then
+  # Store MongoDB URI securely in OS keychain (macOS Keychain / Linux secret-tool).
   KEYCHAIN_OK=false
   if [[ "$OS" == "darwin" ]]; then
-    /usr/bin/security add-generic-password -s pgmemory -a postgres_url -w "$POSTGRES_URI" -U 2>/dev/null \
+    /usr/bin/security add-generic-password -s pgmemory -a mongodb_atlas_uri -w "$MONGO_URI" -U 2>/dev/null \
       && KEYCHAIN_OK=true
   elif command -v secret-tool &>/dev/null; then
-    echo -n "$POSTGRES_URI" | secret-tool store --label "pgmemory postgres_url" service pgmemory key postgres_url 2>/dev/null \
+    echo -n "$MONGO_URI" | secret-tool store --label "pgmemory mongodb_atlas_uri" service pgmemory key mongodb_atlas_uri 2>/dev/null \
       && KEYCHAIN_OK=true
   fi
 
   if $KEYCHAIN_OK; then
-    CONFIG_PG="keychain:postgres_url"
-    ok "PostgreSQL URI stored in OS keychain"
+    CONFIG_URI="keychain:mongodb_atlas_uri"
+    ok "MongoDB URI stored in OS keychain"
   else
-    CONFIG_PG="$POSTGRES_URI"
+    CONFIG_URI="$MONGO_URI"
     info "OS keychain not available — URI stored in config file (less secure)"
   fi
 else
-  CONFIG_PG=""
+  CONFIG_URI=""
 fi
 
 if [[ -f "$CONFIG_PATH" ]]; then
   ok "Config exists at $CONFIG_PATH"
-else
-  if [[ -n "$CONFIG_PG" ]]; then
-    cat > "$CONFIG_PATH" << EOF
-port: 7432
-mode: proxy
-postgres_url: "$CONFIG_PG"
-model_path: ~/.pgmemory/models/voyage-4-nano.gguf
-embedding_dim: 1024
-retrieval_top_k: 5
-retrieval_max_tokens: 2048
-upstream_anthropic_url: https://api.anthropic.com
-llm_synthesis: false
-EOF
-  else
-    cat > "$CONFIG_PATH" << EOF
-port: 7432
-mode: proxy
-model_path: ~/.pgmemory/models/voyage-4-nano.gguf
-embedding_dim: 1024
-retrieval_top_k: 5
-retrieval_max_tokens: 2048
-upstream_anthropic_url: https://api.anthropic.com
-llm_synthesis: false
-EOF
+  if [[ -n "$CONFIG_URI" ]] && grep -q 'mongodb_atlas_uri:' "$CONFIG_PATH"; then
+    info "Updating mongodb_atlas_uri in existing config"
+    if [[ "$OS" == "darwin" ]]; then
+      sed -i '' "s|mongodb_atlas_uri:.*|mongodb_atlas_uri: \"$CONFIG_URI\"|" "$CONFIG_PATH"
+    else
+      sed -i "s|mongodb_atlas_uri:.*|mongodb_atlas_uri: \"$CONFIG_URI\"|" "$CONFIG_PATH"
+    fi
   fi
+else
+  cat > "$CONFIG_PATH" << EOF
+port: 7432
+mongodb_atlas_uri: "$CONFIG_URI"
+mongodb_database: pgmemory
+model_path: ~/.pgmemory/models/voyage-4-nano.gguf
+embedding_dim: 1024
+retrieval_top_k: 5
+retrieval_max_tokens: 2048
+upstream_anthropic_url: https://api.anthropic.com
+EOF
   ok "Config written to $CONFIG_PATH"
 fi
 
@@ -288,9 +284,7 @@ if [[ -f "$MCP_CONFIG" ]]; then
 import json
 with open('$MCP_CONFIG') as f:
     cfg = json.load(f)
-servers = cfg.setdefault('mcpServers', {})
-servers.pop('memoryd', None)  # remove legacy entry
-servers['pgmemory'] = {
+cfg.setdefault('mcpServers', {})['pgmemory'] = {
     'command': '$MEMORYD_BIN',
     'args': ['mcp']
 }
@@ -327,9 +321,7 @@ if [[ "$OS" == "darwin" && -d "$CLAUDE_CONFIG_DIR" ]]; then
 import json
 with open('$CLAUDE_CONFIG') as f:
     cfg = json.load(f)
-servers = cfg.setdefault('mcpServers', {})
-servers.pop('memoryd', None)  # remove legacy entry
-servers['pgmemory'] = {
+cfg.setdefault('mcpServers', {})['pgmemory'] = {
     'command': '$MEMORYD_BIN',
     'args': ['mcp']
 }
@@ -355,9 +347,7 @@ if [[ -d "$HOME/.cursor" ]]; then
 import json
 with open('$CURSOR_MCP') as f:
     cfg = json.load(f)
-servers = cfg.setdefault('mcpServers', {})
-servers.pop('memoryd', None)  # remove legacy entry
-servers['pgmemory'] = {
+cfg.setdefault('mcpServers', {})['pgmemory'] = {
     'command': '$MEMORYD_BIN',
     'args': ['mcp']
 }
@@ -396,9 +386,7 @@ if [[ -d "$WINDSURF_DIR" ]]; then
 import json
 with open('$WINDSURF_MCP') as f:
     cfg = json.load(f)
-servers = cfg.setdefault('mcpServers', {})
-servers.pop('memoryd', None)  # remove legacy entry
-servers['pgmemory'] = {
+cfg.setdefault('mcpServers', {})['pgmemory'] = {
     'command': '$MEMORYD_BIN',
     'args': ['mcp']
 }
@@ -453,8 +441,10 @@ done
 
 if curl -sf "http://127.0.0.1:7432/health" >/dev/null 2>&1; then
   ok "Daemon is healthy"
+elif [[ -n "$ATLAS_URI" ]]; then
+  fail "Daemon did not start — check $MEMORYD_DIR/daemon.log"
 else
-  info "Daemon is starting up — embedded PostgreSQL may take a few seconds"
+  info "Daemon will start after MongoDB is connected from the menu bar app"
 fi
 
 # ── Done ───────────────────────────────────────────────────────────
@@ -462,20 +452,23 @@ fi
 step "Ready!"
 
 echo ""
-echo "  pgmemory is installed and running."
-echo ""
-echo "  Dashboard:     http://127.0.0.1:7432"
-echo "  MCP mode:      Already configured in ~/.mcp.json"
-echo "  Database:      Embedded PostgreSQL (no setup needed)"
-if [[ -n "$POSTGRES_URI" ]]; then
-echo "                 Using external: ${POSTGRES_URI:0:40}..."
+if [[ -n "$ATLAS_URI" ]]; then
+  echo "  pgmemory is running and ready to use."
+  echo ""
+  echo "  Dashboard:  http://127.0.0.1:7432"
+  echo "  MCP mode:   Already configured in ~/.mcp.json"
+else
+  echo "  pgmemory is installed. One more step:"
+  echo ""
+  if [[ "$OS" == "darwin" && -d "$APP_DIR/Pgmemory.app" ]]; then
+  echo "  Click the M icon in your menu bar and select 'Connect to MongoDB'"
+  echo "  to connect to a local (Docker) or remote (Atlas) database."
+  else
+  echo "  Run: pgmemory config --mongo <uri>   (or set mongodb_atlas_uri in ~/.pgmemory/config.yaml)"
+  fi
 fi
 echo ""
-echo "  To enable LLM synthesis (recommended):"
-echo "    Set your Anthropic API key via the menu bar app or:"
-echo "    pgmemory config --anthropic-key <key>"
-echo ""
 if [[ "$OS" == "darwin" && -d "$APP_DIR/Pgmemory.app" ]]; then
-echo "  The Pgmemory menu bar app is running — look for the icon in your menu bar."
+echo "  The Pgmemory menu bar app is running — look for M in your menu bar."
 echo ""
 fi

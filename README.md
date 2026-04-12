@@ -4,11 +4,11 @@
 
 **Shared knowledge for engineering teams — built automatically from the work you already do.**
 
-[![CI](https://github.com/memory-daemon/memoryd/actions/workflows/ci.yml/badge.svg)](https://github.com/memory-daemon/memoryd/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/memory-daemon/memoryd)](https://goreportcard.com/report/github.com/memory-daemon/memoryd)
+[![CI](https://github.com/jeff-vincent/memoryd/actions/workflows/ci.yml/badge.svg)](https://github.com/jeff-vincent/memoryd/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jeff-vincent/memoryd)](https://goreportcard.com/report/github.com/jeff-vincent/memoryd)
 [![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-memoryd-orange)](https://memory-daemon.github.io/memoryd/)
+[![Docs](https://img.shields.io/badge/docs-memoryd-orange)](https://jeff-vincent.github.io/memoryd/)
 
 </div>
 
@@ -24,13 +24,13 @@ Your Team's AI Tools → memoryd → LLM Provider
                     MongoDB Atlas (shared)
 ```
 
-**[Read the full documentation →](https://memory-daemon.github.io/memoryd/)**
+**[Read the full documentation →](https://jeff-vincent.github.io/memoryd/)**
 
 ## Quick Start
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/memory-daemon/memoryd/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jeff-vincent/memoryd/main/install.sh | bash
 
 # Configure — point at your team's shared Atlas cluster
 # Edit ~/.memoryd/config.yaml:
@@ -54,7 +54,7 @@ For Cursor, Windsurf, or any MCP-compatible tool:
 }
 ```
 
-See the **[Getting Started](https://memory-daemon.github.io/memoryd/getting-started)** guide for full team setup.
+See the **[Getting Started](https://jeff-vincent.github.io/memoryd/getting-started)** guide for full team setup.
 
 ## Why memoryd?
 
@@ -68,27 +68,27 @@ See the **[Getting Started](https://memory-daemon.github.io/memoryd/getting-star
 
 ## How It Works
 
-### [Knowledge Capture](https://memory-daemon.github.io/memoryd/how-it-works/write-path)
+### [Knowledge Capture](https://jeff-vincent.github.io/memoryd/how-it-works/write-path)
 
 Every AI response is captured asynchronously (zero latency impact), passed through a multi-stage quality filter (length gate, adaptive content scoring, LLM synthesis gate), scrubbed of secrets (API keys, tokens, passwords — 13 detection patterns), deduplicated, and stored in the shared database. The system learns what noise looks like from rejected exchanges, improving filtering accuracy over time.
 
-### [Context Retrieval](https://memory-daemon.github.io/memoryd/how-it-works/read-path)
+### [Context Retrieval](https://jeff-vincent.github.io/memoryd/how-it-works/read-path)
 
 Every prompt is enriched with relevant knowledge from the shared store. The AI tool sees prior context — from its own sessions and teammates' — without anyone asking for it.
 
-### [Quality Maintenance](https://memory-daemon.github.io/memoryd/how-it-works/quality-loop)
+### [Quality Maintenance](https://jeff-vincent.github.io/memoryd/how-it-works/quality-loop)
 
 A background process scores knowledge by usefulness and recency, prunes noise, and merges near-duplicates across the whole team's contributions. The store self-maintains.
 
-### [Hybrid Search](https://memory-daemon.github.io/memoryd/how-it-works/hybrid-search)
+### [Hybrid Search](https://jeff-vincent.github.io/memoryd/how-it-works/hybrid-search)
 
 On Atlas, retrieval combines meaning-based and keyword-based search with diversity optimization. Finds both conceptually related and exact-match results.
 
-### [Tool Integration](https://memory-daemon.github.io/memoryd/agents/mcp-server)
+### [Tool Integration](https://jeff-vincent.github.io/memoryd/agents/mcp-server)
 
 Connects via transparent proxy (Claude Code) or MCP server (Cursor, Windsurf, any MCP tool). Different team members can use different tools — they all share the same knowledge.
 
-### [Team Knowledge Hub](https://memory-daemon.github.io/memoryd/team-knowledge-hub)
+### [Team Knowledge Hub](https://jeff-vincent.github.io/memoryd/team-knowledge-hub)
 
 Point your team at a shared Atlas cluster. Each person works normally. Knowledge accumulates organically from daily work. Coming soon: team-scoped and BU-scoped knowledge layers that overlap naturally.
 
@@ -159,7 +159,7 @@ pipeline:
   content_score_pre_gate: 0.35        # Adaptive noise score threshold
 ```
 
-See the full **[Configuration Reference](https://memory-daemon.github.io/memoryd/configuration)**.
+See the full **[Configuration Reference](https://jeff-vincent.github.io/memoryd/configuration)**.
 
 ## Development
 

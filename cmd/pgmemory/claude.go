@@ -8,7 +8,7 @@ import (
 	"runtime"
 )
 
-// registerMCPServers attempts to register memoryd as an MCP server in every
+// registerMCPServers attempts to register pgmemory as an MCP server in every
 // supported coding agent found on this machine. Each registration is
 // idempotent and non-fatal — failures are logged and skipped.
 func registerMCPServers() {
@@ -43,7 +43,7 @@ func registerMCPServers() {
 	}
 }
 
-// mcpEntry returns the standard MCP server entry for memoryd.
+// mcpEntry returns the standard MCP server entry for pgmemory.
 func mcpEntry(execPath string) map[string]any {
 	return map[string]any{
 		"command": execPath,
@@ -91,18 +91,18 @@ func registerClaudeCode(home string, entry map[string]any) error {
 		homeProject["mcpServers"] = mcpServers
 	}
 
-	if _, exists := mcpServers["memoryd"]; exists {
+	if _, exists := mcpServers["pgmemory"]; exists {
 		return nil
 	}
 
-	mcpServers["memoryd"] = entry
+	mcpServers["pgmemory"] = entry
 
 	return writeJSON(settingsPath, settings)
 }
 
 // --- Standard format (Cursor, Windsurf, Cline) ---
 
-// registerStandard writes an {"mcpServers":{"memoryd":{...}}} config file.
+// registerStandard writes an {"mcpServers":{"pgmemory":{...}}} config file.
 // It only proceeds if the agent's config directory already exists (proving
 // the agent is installed). The config file itself is created if absent.
 func registerStandard(home, configPath string, entry map[string]any) error {
@@ -131,11 +131,11 @@ func registerStandard(home, configPath string, entry map[string]any) error {
 		cfg["mcpServers"] = mcpServers
 	}
 
-	if _, exists := mcpServers["memoryd"]; exists {
+	if _, exists := mcpServers["pgmemory"]; exists {
 		return nil
 	}
 
-	mcpServers["memoryd"] = entry
+	mcpServers["pgmemory"] = entry
 
 	if err := writeJSON(configPath, cfg); err != nil {
 		return err

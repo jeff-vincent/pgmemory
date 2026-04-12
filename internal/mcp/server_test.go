@@ -40,8 +40,8 @@ func TestInitialize(t *testing.T) {
 		t.Errorf("expected protocolVersion 2024-11-05, got %v", result["protocolVersion"])
 	}
 	info := result["serverInfo"].(map[string]any)
-	if info["name"] != "memoryd" {
-		t.Errorf("expected serverInfo.name memoryd, got %v", info["name"])
+	if info["name"] != "pgmemory" {
+		t.Errorf("expected serverInfo.name pgmemory, got %v", info["name"])
 	}
 }
 

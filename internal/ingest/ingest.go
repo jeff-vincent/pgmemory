@@ -7,11 +7,11 @@ import (
 	"log"
 	"strings"
 
-	"github.com/memory-daemon/memoryd/internal/chunker"
-	"github.com/memory-daemon/memoryd/internal/crawler"
-	"github.com/memory-daemon/memoryd/internal/embedding"
-	"github.com/memory-daemon/memoryd/internal/redact"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/chunker"
+	"github.com/jeff-vincent/pgmemory/internal/crawler"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/redact"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

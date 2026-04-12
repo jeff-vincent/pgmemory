@@ -6,7 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 )
 
 type mockQualityStore struct {

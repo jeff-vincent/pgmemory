@@ -58,14 +58,14 @@ Distribute this to your team via your org's secrets management (1Password, Vault
 
 **One-line install (macOS):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/memory-daemon/memoryd/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jeff-vincent/memoryd/main/install.sh | bash
 ```
 
 This installs the memoryd binary, downloads the local embedding model (~70MB), and creates a default config file.
 
 **From source:**
 ```bash
-git clone https://github.com/memory-daemon/memoryd.git
+git clone https://github.com/jeff-vincent/memoryd.git
 cd memoryd
 make build    # → bin/memoryd
 ```

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/memory-daemon/memoryd/eval"
+	"github.com/jeff-vincent/pgmemory/eval"
 )
 
 func main() {
@@ -17,7 +17,7 @@ func main() {
 		jsonOutput    = flag.Bool("json", false, "output JSON instead of human-readable report")
 		model         = flag.String("model", "", "model for task runs (default: claude-sonnet-4-20250514)")
 		judgeModel    = flag.String("judge-model", "", "model for judging (default: same as -model)")
-		memorydURL    = flag.String("memoryd", "http://127.0.0.1:7432", "memoryd daemon URL")
+		pgmemoryURL    = flag.String("pgmemory", "http://127.0.0.1:7432", "pgmemory daemon URL")
 	)
 	flag.Parse()
 
@@ -55,7 +55,7 @@ func main() {
 
 	cfg := eval.Config{
 		AnthropicKey: apiKey,
-		MemorydURL:   *memorydURL,
+		PgmemoryURL:   *pgmemoryURL,
 		Model:        *model,
 		JudgeModel:   *judgeModel,
 	}

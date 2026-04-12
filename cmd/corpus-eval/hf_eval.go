@@ -1,6 +1,6 @@
 // hf_eval.go
 //
-// HuggingFace-dataset-based pipeline optimization for memoryd.
+// HuggingFace-dataset-based pipeline optimization for pgmemory.
 //
 // Downloads a sample from nlile/misc-merged-claude-code-traces-v1 and
 // classifies assistant responses into three buckets:
@@ -10,10 +10,10 @@
 //                 filter, phrased similarly, but carries no durable knowledge
 //   substantive – specific technical content worth storing
 //
-// Phase 1 (local, no memoryd required): shows classification distribution and
+// Phase 1 (local, no pgmemory required): shows classification distribution and
 // representative explanation samples.
 //
-// Phase 2 (requires memoryd): sweeps content_score_gate × noise_proto configurations,
+// Phase 2 (requires pgmemory): sweeps content_score_gate × noise_proto configurations,
 // stores balanced samples, measures filter rates, and recommends the optimal setting.
 //
 // Entry point: runHFEval()
@@ -235,12 +235,12 @@ var explanationNoiseProtos = []string{
 }
 
 // ---------------------------------------------------------------------------
-// Auth-aware API helpers (reads token from ~/.memoryd/token)
+// Auth-aware API helpers (reads token from ~/.pgmemory/token)
 // ---------------------------------------------------------------------------
 
 func loadToken() string {
 	home, _ := os.UserHomeDir()
-	data, err := os.ReadFile(filepath.Join(home, ".memoryd", "token"))
+	data, err := os.ReadFile(filepath.Join(home, ".pgmemory", "token"))
 	if err != nil {
 		return ""
 	}
@@ -454,13 +454,13 @@ func (r sweepResult) score() float64 {
 func runHFEval(w io.Writer, baseURL string, sampleSize int, noCleanup bool) {
 	token := loadToken()
 
-	fmt.Fprintf(os.Stderr, "=== memoryd HF pipeline optimiser ===\n")
+	fmt.Fprintf(os.Stderr, "=== pgmemory HF pipeline optimiser ===\n")
 	fmt.Fprintf(os.Stderr, "dataset:    %s\n", hfDataset)
 	fmt.Fprintf(os.Stderr, "sample:     %d rows\n", sampleSize)
 	fmt.Fprintf(os.Stderr, "target:     %s\n\n", baseURL)
 
 	// ----------------------------------------------------------------
-	// Phase 1 — local classification (no memoryd required)
+	// Phase 1 — local classification (no pgmemory required)
 	// ----------------------------------------------------------------
 
 	fmt.Fprintln(os.Stderr, "[phase 1] fetching rows from HuggingFace...")
@@ -492,7 +492,7 @@ func runHFEval(w io.Writer, baseURL string, sampleSize int, noCleanup bool) {
 	)
 
 	// ----------------------------------------------------------------
-	// Phase 2 — live gate sweep (requires memoryd)
+	// Phase 2 — live gate sweep (requires pgmemory)
 	// ----------------------------------------------------------------
 
 	var results []sweepResult
@@ -504,7 +504,7 @@ func runHFEval(w io.Writer, baseURL string, sampleSize int, noCleanup bool) {
 	}
 
 	if liveAvailable {
-		fmt.Fprintln(os.Stderr, "[phase 2] running live gate sweep against memoryd...")
+		fmt.Fprintln(os.Stderr, "[phase 2] running live gate sweep against pgmemory...")
 
 		// Save current config so we can restore it
 		origCfg, err := getPipelineConfig(baseURL, token)
@@ -623,7 +623,7 @@ func runHFEval(w io.Writer, baseURL string, sampleSize int, noCleanup bool) {
 		}
 
 	} else {
-		fmt.Fprintln(os.Stderr, "[phase 2] skipped — memoryd not reachable at "+baseURL)
+		fmt.Fprintln(os.Stderr, "[phase 2] skipped — pgmemory not reachable at "+baseURL)
 	}
 
 	// ----------------------------------------------------------------
@@ -643,7 +643,7 @@ func writeHFReport(w io.Writer, rows []hfRow, noises, explanations, substantives
 	total := len(rows)
 	now := time.Now().Format("2006-01-02 15:04:05")
 
-	fmt.Fprintf(w, "# memoryd HF Pipeline Optimiser — %s\n\n", now)
+	fmt.Fprintf(w, "# pgmemory HF Pipeline Optimiser — %s\n\n", now)
 	fmt.Fprintf(w, "**Dataset:** `%s`  \n", hfDataset)
 	fmt.Fprintf(w, "**Sample rows:** %d  \n\n", total)
 
@@ -757,7 +757,7 @@ func writeHFReport(w io.Writer, rows []hfRow, noises, explanations, substantives
 
 	} else if !liveRan {
 		fmt.Fprintf(w, "## Gate Sweep Results\n\n")
-		fmt.Fprintf(w, "_Phase 2 skipped — memoryd was not reachable. Start the daemon and re-run\n")
+		fmt.Fprintf(w, "_Phase 2 skipped — pgmemory was not reachable. Start the daemon and re-run\n")
 		fmt.Fprintf(w, "to get sweep results and a recommended `content_score_gate` value._\n\n")
 		fmt.Fprintf(w, "### Suggested starting point (without sweep data)\n\n")
 		fmt.Fprintf(w, "Based on the classification distribution above, a reasonable starting config is:\n\n")
@@ -770,7 +770,7 @@ func writeHFReport(w io.Writer, rows []hfRow, noises, explanations, substantives
 		}, "", "  ")
 		fmt.Fprintln(w, string(starter))
 		fmt.Fprintf(w, "```\n\n")
-		fmt.Fprintf(w, "Run again with memoryd running to validate this against your actual data.\n\n")
+		fmt.Fprintf(w, "Run again with pgmemory running to validate this against your actual data.\n\n")
 	}
 
 	// --- Interpretation guide ---
@@ -807,7 +807,7 @@ type rowResult struct {
 func runDirectEval(w io.Writer, baseURL string, sampleSize, concurrency int, noCleanup bool) {
 	token := loadToken()
 
-	fmt.Fprintf(os.Stderr, "=== memoryd direct ingest eval ===\n")
+	fmt.Fprintf(os.Stderr, "=== pgmemory direct ingest eval ===\n")
 	fmt.Fprintf(os.Stderr, "dataset:     %s\n", hfDataset)
 	fmt.Fprintf(os.Stderr, "rows:        %d\n", sampleSize)
 	fmt.Fprintf(os.Stderr, "concurrency: %d\n", concurrency)
@@ -816,7 +816,7 @@ func runDirectEval(w io.Writer, baseURL string, sampleSize, concurrency int, noC
 	// Check connectivity.
 	var health struct{ Status string }
 	if err := authGet(baseURL, "/health", &health, token); err != nil || health.Status != "ok" {
-		fmt.Fprintf(os.Stderr, "error: memoryd not reachable at %s\n", baseURL)
+		fmt.Fprintf(os.Stderr, "error: pgmemory not reachable at %s\n", baseURL)
 		os.Exit(1)
 	}
 
@@ -981,7 +981,7 @@ func writeDirectReport(w io.Writer, rows []hfRow, results []rowResult,
 	filtered := preFilter + synthSkip + noiseFiltered
 
 	now := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(w, "# memoryd Direct Ingest Eval — %s\n\n", now)
+	fmt.Fprintf(w, "# pgmemory Direct Ingest Eval — %s\n\n", now)
 	fmt.Fprintf(w, "**Dataset:** `%s`  \n", hfDataset)
 	fmt.Fprintf(w, "**Rows ingested:** %d  \n", total)
 	fmt.Fprintf(w, "**Wall time:** %s  \n", elapsed.Round(time.Second))

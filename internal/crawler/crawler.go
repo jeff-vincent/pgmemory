@@ -124,7 +124,7 @@ func fetchPage(ctx context.Context, client *http.Client, pageURL string, base *u
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "memoryd-crawler/1.0")
+	req.Header.Set("User-Agent", "pgmemory-crawler/1.0")
 	req.Header.Set("Accept", "text/html")
 	for k, v := range headers {
 		req.Header.Set(k, v)

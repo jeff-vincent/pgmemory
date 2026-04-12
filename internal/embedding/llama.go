@@ -90,7 +90,7 @@ func NewLlamaEmbedder(modelPath string, dim int) (*LlamaEmbedder, error) {
 
 	serverURL := "http://127.0.0.1:" + embeddingServerPort
 
-	logPath := filepath.Join(os.TempDir(), "memoryd-llama-server.log")
+	logPath := filepath.Join(os.TempDir(), "pgmemory-llama-server.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return nil, fmt.Errorf("creating llama-server log: %w", err)
@@ -140,7 +140,7 @@ func (e *LlamaEmbedder) waitReady() error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return fmt.Errorf("llama-server did not become ready within 15s (check %s/memoryd-llama-server.log)", os.TempDir())
+	return fmt.Errorf("llama-server did not become ready within 15s (check %s/pgmemory-llama-server.log)", os.TempDir())
 }
 
 type embeddingReq struct {

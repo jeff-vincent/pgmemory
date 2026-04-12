@@ -1,16 +1,16 @@
 // cmd/corpus-eval/main.go
 //
-// Corpus-based quality evaluation for memoryd.
+// Corpus-based quality evaluation for pgmemory.
 //
 // Feeds 82 entries across six quality tiers (noise, low, medium, high,
-// near-duplicate, long-form) into memoryd in waves. After each wave it
+// near-duplicate, long-form) into pgmemory in waves. After each wave it
 // snapshots dashboard stats and runs five standard search queries, letting
 // you observe how retrieval quality evolves as the memory store grows.
 //
 // Run twice to compare synthesis modes:
 //
-//	Without synthesis: memoryd started without ANTHROPIC_API_KEY
-//	With    synthesis: memoryd started with    ANTHROPIC_API_KEY
+//	Without synthesis: pgmemory started without ANTHROPIC_API_KEY
+//	With    synthesis: pgmemory started with    ANTHROPIC_API_KEY
 //
 // Usage:
 //
@@ -18,7 +18,7 @@
 //
 // Flags:
 //
-//	--base-url   memoryd HTTP address  (default: http://127.0.0.1:7432)
+//	--base-url   pgmemory HTTP address  (default: http://127.0.0.1:7432)
 //	--output     write markdown report to file (default: stdout)
 //	--no-cleanup keep eval memories after the run
 //	--hf         run HuggingFace pipeline optimiser instead of hardcoded corpus
@@ -102,11 +102,11 @@ var corpus = []entry{
 	// -----------------------------------------------------------------------
 	// HIGH QUALITY — specific, detailed, actionable, with rationale
 	// -----------------------------------------------------------------------
-	{`memoryd deduplication uses cosine similarity ≥ 0.92 as the threshold for skipping near-duplicate content. This value was chosen after threshold testing: 0.85 caused false positives where similar but distinct concepts were merged, while 0.95 missed near-verbatim paraphrases of the same fact. At 0.92 the system correctly deduplicates paraphrases while preserving distinct angles on related topics.`, "high"},
+	{`pgmemory deduplication uses cosine similarity ≥ 0.92 as the threshold for skipping near-duplicate content. This value was chosen after threshold testing: 0.85 caused false positives where similar but distinct concepts were merged, while 0.95 missed near-verbatim paraphrases of the same fact. At 0.92 the system correctly deduplicates paraphrases while preserving distinct angles on related topics.`, "high"},
 
-	{`MongoDB vector search requires a "vectorSearch" index with numDimensions matching the embedding model. memoryd uses 1024 dimensions (voyage-4-nano). If the index is missing or misconfigured, $vectorSearch returns empty results silently — no error is raised. This silent failure mode means you must verify index existence at startup by calling db.memories.listIndexes() and checking for the vectorSearch index before accepting traffic.`, "high"},
+	{`MongoDB vector search requires a "vectorSearch" index with numDimensions matching the embedding model. pgmemory uses 1024 dimensions (voyage-4-nano). If the index is missing or misconfigured, $vectorSearch returns empty results silently — no error is raised. This silent failure mode means you must verify index existence at startup by calling db.memories.listIndexes() and checking for the vectorSearch index before accepting traffic.`, "high"},
 
-	{`memoryd embeds text locally via llama.cpp serving voyage-4-nano on port 8080. Critical constraint: llama.cpp must be running before memoryd starts. If the embedder fails mid-write, the write pipeline logs the error and returns an empty WriteResult (Stored=0) — indistinguishable from empty input. Production health checks should probe both the memoryd /health endpoint and the llama.cpp embedder endpoint separately.`, "high"},
+	{`pgmemory embeds text locally via llama.cpp serving voyage-4-nano on port 8080. Critical constraint: llama.cpp must be running before pgmemory starts. If the embedder fails mid-write, the write pipeline logs the error and returns an empty WriteResult (Stored=0) — indistinguishable from empty input. Production health checks should probe both the pgmemory /health endpoint and the llama.cpp embedder endpoint separately.`, "high"},
 
 	{`The synthesizer gating condition synth.Available() returns true only when ANTHROPIC_API_KEY is set and the synthesizer initialized successfully. Topic groups that pass the gate are distilled by Claude Haiku into a single coherent memory; those that don't are joined with "\n\n". Synthesis mode is not recorded on stored memories, so you cannot distinguish synthesized from joined memories after the fact without re-running the pipeline.`, "high"},
 
@@ -118,15 +118,15 @@ var corpus = []entry{
 
 	{`HMAC-SHA256 API key secrets must be generated from cryptographic randomness, not human-readable strings. Lowercase ASCII uses only 26 of 256 possible byte values per character, dramatically reducing effective key entropy. Generate secrets with crypto/rand.Read() and encode with base64.URLEncoding.EncodeToString() before storage. A 32-byte random secret provides 256 bits of entropy; a 32-character alphanumeric string provides only ~190 bits.`, "high"},
 
-	{`memoryd quality scoring: quality_score = log2(hit_count + 1) / log2(max_hits + 1) × 0.5^(daysSinceRetrieval / halfLife). The half-life is scaled by content_score — high-quality content (score 0.9) gets a 3× longer effective half-life than low-quality (score 0.3). This means noise that slips through the filter decays quickly, while frequently-retrieved high-quality memories persist indefinitely.`, "high"},
+	{`pgmemory quality scoring: quality_score = log2(hit_count + 1) / log2(max_hits + 1) × 0.5^(daysSinceRetrieval / halfLife). The half-life is scaled by content_score — high-quality content (score 0.9) gets a 3× longer effective half-life than low-quality (score 0.3). This means noise that slips through the filter decays quickly, while frequently-retrieved high-quality memories persist indefinitely.`, "high"},
 
 	{`Heap profiling in Go: compare two pprof heap profiles to find leaks. Capture with runtime/pprof.WriteHeapProfile() or the /debug/pprof/heap endpoint. Diff them: go tool pprof -base first.prof second.prof. Net-positive allocations in the diff are leak candidates. Common culprits: goroutine stacks that never shrink, slices with large backing arrays after reslicing, and []byte↔string conversions in hot paths creating GC pressure.`, "high"},
 
 	{`The write pipeline's topic detection walks consecutive chunk embeddings and splits at cosine similarity < 0.65. Chunk order matters: the algorithm is sequential, so a Go concurrency paragraph followed by a Python async paragraph splits into two groups even if both are abstractly about "concurrency", because their embedding vectors diverge at the boundary. Topic grouping is a local, not global, similarity decision.`, "high"},
 
-	{`MongoDB Atlas vector search: numCandidates controls how many documents are scanned before ranking. Default 150 with limit 10 scans 15× more than returned, providing good recall at ~30ms p99 for memoryd's workload. Increasing numCandidates improves recall (finds rarer relevant documents) but raises latency linearly. Tune based on acceptable latency budget; 150 is the right default for real-time context injection.`, "high"},
+	{`MongoDB Atlas vector search: numCandidates controls how many documents are scanned before ranking. Default 150 with limit 10 scans 15× more than returned, providing good recall at ~30ms p99 for pgmemory's workload. Increasing numCandidates improves recall (finds rarer relevant documents) but raises latency linearly. Tune based on acceptable latency budget; 150 is the right default for real-time context injection.`, "high"},
 
-	{`Go http.Client connection pool defaults: MaxIdleConns=100, MaxIdleConnsPerHost=2, IdleConnTimeout=90s. For high-throughput proxy workloads (like memoryd forwarding to Anthropic), the default MaxIdleConnsPerHost=2 is a bottleneck — beyond 2 concurrent requests to the same host, new TCP connections are opened unnecessarily. Set MaxIdleConnsPerHost to match expected concurrency to avoid TCP handshake overhead per request.`, "high"},
+	{`Go http.Client connection pool defaults: MaxIdleConns=100, MaxIdleConnsPerHost=2, IdleConnTimeout=90s. For high-throughput proxy workloads (like pgmemory forwarding to Anthropic), the default MaxIdleConnsPerHost=2 is a bottleneck — beyond 2 concurrent requests to the same host, new TCP connections are opened unnecessarily. Set MaxIdleConnsPerHost to match expected concurrency to avoid TCP handshake overhead per request.`, "high"},
 
 	{`WiredTiger (MongoDB's storage engine) uses an LSM-tree variant, making writes fast (append-only) but reads slower for data not in the cache (requires merging across tree levels). Working set must fit in the WiredTiger cache (default: 50% RAM - 1 GB) for read performance. If the working set exceeds the cache, read amplification from compaction causes latency spikes. Monitor cache miss ratio via serverStatus.wiredTiger.cache.`, "high"},
 
@@ -134,7 +134,7 @@ var corpus = []entry{
 
 	{`errgroup.WithContext from golang.org/x/sync/errgroup cancels all goroutines in the group when the first one returns a non-nil error. Critical pattern: always defer the cancel function returned by errgroup.WithContext, even on success, or you leak the context. Common mistake: passing a background context instead of errgroup.WithContext, which means slow sibling goroutines aren't cancelled when one fails.`, "high"},
 
-	{`memoryd steward pruning triple condition: quality_score < 0.1 AND age > 24h AND hit_count == 0. All three must hold before a memory is deleted. The 24-hour grace period protects newly stored memories regardless of quality score. hit_count > 0 protects memories that have been retrieved at least once. This prevents the steward from pruning useful memories it hasn't yet had a chance to evaluate via retrieval feedback.`, "high"},
+	{`pgmemory steward pruning triple condition: quality_score < 0.1 AND age > 24h AND hit_count == 0. All three must hold before a memory is deleted. The 24-hour grace period protects newly stored memories regardless of quality score. hit_count > 0 protects memories that have been retrieved at least once. This prevents the steward from pruning useful memories it hasn't yet had a chance to evaluate via retrieval feedback.`, "high"},
 
 	{`The proxy's streaming SSE handler buffers the full assistant response in memory while forwarding events to the client in real time. Memory footprint scales with response length — a 10K-token streaming response holds ~40KB in memory until the stream ends. There is currently no per-response memory limit. For very long agentic responses, monitor the proxy process RSS if you suspect memory pressure.`, "high"},
 
@@ -148,8 +148,8 @@ var corpus = []entry{
 	// -----------------------------------------------------------------------
 
 	// Pair 1
-	{`memoryd's deduplication threshold is 0.92 cosine similarity. Chunks scoring at or above this value against an existing memory are skipped as near-duplicates, preventing redundant entries from accumulating in the memory store.`, "duplicate"},
-	{`The deduplication threshold in memoryd is set to cosine similarity 0.92. When an incoming chunk scores this high against an existing memory, it is dropped as a near-duplicate to avoid redundancy in the store.`, "duplicate"},
+	{`pgmemory's deduplication threshold is 0.92 cosine similarity. Chunks scoring at or above this value against an existing memory are skipped as near-duplicates, preventing redundant entries from accumulating in the memory store.`, "duplicate"},
+	{`The deduplication threshold in pgmemory is set to cosine similarity 0.92. When an incoming chunk scores this high against an existing memory, it is dropped as a near-duplicate to avoid redundancy in the store.`, "duplicate"},
 
 	// Pair 2
 	{`Go goroutines are scheduled by the Go runtime using a work-stealing scheduler across GOMAXPROCS OS threads. They start with a small initial stack of 2–8 KB that grows dynamically as call depth increases.`, "duplicate"},
@@ -157,11 +157,11 @@ var corpus = []entry{
 
 	// Pair 3
 	{`voyage-4-nano embeddings have 1024 dimensions and are stored as float32 arrays in MongoDB alongside each memory's text content and source metadata.`, "duplicate"},
-	{`Each memoryd memory stores a 1024-dimensional float32 embedding from voyage-4-nano alongside the text content and source metadata fields in MongoDB.`, "duplicate"},
+	{`Each pgmemory memory stores a 1024-dimensional float32 embedding from voyage-4-nano alongside the text content and source metadata fields in MongoDB.`, "duplicate"},
 
 	// Pair 4
 	{`The write pipeline noise filter rejects content shorter than 20 characters or with an alphanumeric ratio below 40%. This blocks greetings, emoji strings, and punctuation fragments from entering the embedding pipeline.`, "duplicate"},
-	{`memoryd's noise gate filters out content that is shorter than 20 characters or has fewer than 40% alphanumeric characters, blocking greetings, emoji, and punctuation-heavy fragments before embedding.`, "duplicate"},
+	{`pgmemory's noise gate filters out content that is shorter than 20 characters or has fewer than 40% alphanumeric characters, blocking greetings, emoji, and punctuation-heavy fragments before embedding.`, "duplicate"},
 
 	// Pair 5
 	{`MongoDB Atlas vector search uses cosine similarity to rank candidate memories by semantic proximity to the query embedding, returning results in descending similarity order.`, "duplicate"},
@@ -169,11 +169,11 @@ var corpus = []entry{
 
 	// Pair 6
 	{`The content scorer assigns quality scores by comparing embeddings against prototype vectors for quality and noise categories. High scores (close to 1.0) indicate quality content; low scores (close to 0.0) indicate noise-like content.`, "duplicate"},
-	{`memoryd's content scorer scores memories by semantic proximity to quality and noise prototype vectors. Content resembling high-quality decisions scores near 1.0; content resembling noise or greetings scores near 0.0.`, "duplicate"},
+	{`pgmemory's content scorer scores memories by semantic proximity to quality and noise prototype vectors. Content resembling high-quality decisions scores near 1.0; content resembling noise or greetings scores near 0.0.`, "duplicate"},
 
 	// Pair 7
 	{`Session summaries are synthesized after three or more conversation turns and stored as separate memories with source "claude-code-session", capturing the problem, approach, and resolution arc of the conversation.`, "duplicate"},
-	{`After three or more turns in a proxied conversation, memoryd synthesizes a session summary and stores it separately under the source "claude-code-session", distilling the problem-to-resolution arc.`, "duplicate"},
+	{`After three or more turns in a proxied conversation, pgmemory synthesizes a session summary and stores it separately under the source "claude-code-session", distilling the problem-to-resolution arc.`, "duplicate"},
 
 	// Pair 8
 	{`The steward's merge phase combines memories with cosine similarity ≥ 0.88. The memory with the higher hit_count survives; the other's content is absorbed into the survivor before deletion.`, "duplicate"},
@@ -184,8 +184,8 @@ var corpus = []entry{
 	{`The Go defer statement guarantees execution when the surrounding function exits — via return or panic — and multiple deferred calls run in LIFO (last-in-first-out) order.`, "duplicate"},
 
 	// Pair 10
-	{`The memoryd MCP server exposes ten tools: memory_search, memory_store, memory_list, memory_delete, source_ingest, source_upload, source_list, source_remove, quality_stats, and database_list.`, "duplicate"},
-	{`memoryd's MCP server provides ten tools to the AI agent: memory_search, memory_store, memory_list, memory_delete, source_ingest, source_upload, source_list, source_remove, quality_stats, and database_list.`, "duplicate"},
+	{`The pgmemory MCP server exposes ten tools: memory_search, memory_store, memory_list, memory_delete, source_ingest, source_upload, source_list, source_remove, quality_stats, and database_list.`, "duplicate"},
+	{`pgmemory's MCP server provides ten tools to the AI agent: memory_search, memory_store, memory_list, memory_delete, source_ingest, source_upload, source_list, source_remove, quality_stats, and database_list.`, "duplicate"},
 
 	// -----------------------------------------------------------------------
 	// LONG-FORM — multi-paragraph entries that exceed 2048 chars, triggering
@@ -195,25 +195,25 @@ var corpus = []entry{
 	// -----------------------------------------------------------------------
 	// Deep dive on vector search dedup — all paragraphs stay on dedup/cosine/threshold topic.
 	// Each paragraph elaborates the same narrow concept so consecutive chunk similarity > 0.65.
-	{`memoryd's deduplication system uses cosine similarity between embedding vectors to detect near-duplicate content before storage. When a new chunk arrives in the write pipeline, it is first embedded into a 1024-dimensional vector using the voyage-4-nano model. That vector is then compared against all existing memories using $vectorSearch with numCandidates=1, retrieving only the single nearest neighbor in the embedding space. If the nearest neighbor's cosine similarity score is 0.92 or greater, the new chunk is considered a semantic duplicate of the existing memory and discarded without storage. This single-nearest-neighbor dedup check adds approximately 18ms of latency to each write operation — the cost of one MongoDB $vectorSearch round trip.
+	{`pgmemory's deduplication system uses cosine similarity between embedding vectors to detect near-duplicate content before storage. When a new chunk arrives in the write pipeline, it is first embedded into a 1024-dimensional vector using the voyage-4-nano model. That vector is then compared against all existing memories using $vectorSearch with numCandidates=1, retrieving only the single nearest neighbor in the embedding space. If the nearest neighbor's cosine similarity score is 0.92 or greater, the new chunk is considered a semantic duplicate of the existing memory and discarded without storage. This single-nearest-neighbor dedup check adds approximately 18ms of latency to each write operation — the cost of one MongoDB $vectorSearch round trip.
 
 The deduplication threshold of 0.92 was chosen after empirical calibration against a range of similarity values. At a threshold of 0.85, the dedup system was too aggressive: it incorrectly suppressed content that was semantically similar but conveyed distinct information, such as two different error messages from the same subsystem or two code examples implementing the same algorithm differently. At 0.95, the threshold was too permissive: near-verbatim restatements of the same fact — differing only in word order or minor phrasing — were stored as separate memories, inflating the store with redundant content. The 0.92 threshold sits between these failure modes, reliably deduplicating high-confidence paraphrases while preserving genuine new information.
 
 In the embedding space, a cosine similarity of 0.92 corresponds to vectors whose angle is approximately 23 degrees apart. This angular distance is significantly tighter than typical inter-topic similarity (0.65–0.80 for related but distinct concepts) and noticeably looser than near-verbatim repetition (0.97–0.99). Practically, two sentences must share the same core claim, expressed with mostly overlapping vocabulary and minimal structural variation, to achieve 0.92 similarity with voyage-4-nano. Paraphrases that change sentence structure substantially, introduce synonyms for key terms, or reframe the same fact from a different angle often score 0.85–0.91 — close but below the dedup cutoff, resulting in both versions being stored.
 
-The consequence of this threshold design is that memoryd's dedup system catches verbatim and near-verbatim repetition reliably but does not consolidate semantically equivalent knowledge expressed in different vocabularies. Over time, the store accumulates multiple memories that convey overlapping information when the same topic is discussed in varying terms across multiple sessions. The steward's merge phase addresses this secondary redundancy problem: it runs hourly, compares all pairs of stored memories using cosine similarity, and merges pairs that score 0.88 or above — a lower threshold than dedup (0.92) because merge safety is ensured by retaining the higher-hit-count memory and absorbing the content of the lower-hit-count one. Together, the two mechanisms — dedup at write time at 0.92 and merge at sweep time at 0.88 — provide layered redundancy control at different granularities.`, "longform"},
+The consequence of this threshold design is that pgmemory's dedup system catches verbatim and near-verbatim repetition reliably but does not consolidate semantically equivalent knowledge expressed in different vocabularies. Over time, the store accumulates multiple memories that convey overlapping information when the same topic is discussed in varying terms across multiple sessions. The steward's merge phase addresses this secondary redundancy problem: it runs hourly, compares all pairs of stored memories using cosine similarity, and merges pairs that score 0.88 or above — a lower threshold than dedup (0.92) because merge safety is ensured by retaining the higher-hit-count memory and absorbing the content of the lower-hit-count one. Together, the two mechanisms — dedup at write time at 0.92 and merge at sweep time at 0.88 — provide layered redundancy control at different granularities.`, "longform"},
 
-	// Deep dive on the memoryd write pipeline embedding flow.
-	{`The write pipeline in memoryd processes every piece of text through a sequence of transformation stages before it reaches MongoDB. The first stage is chunking: the input text is split into segments of at most 512 tokens using the Chunk() function, which respects semantic boundaries including paragraph breaks, code block boundaries, list boundaries, and heading boundaries. Each chunk is designed to fit within the embedding model's context window — voyage-4-nano can embed sequences of up to 512 tokens in a single forward pass, producing one 1024-dimensional float32 vector per chunk. Exceeding this window causes the model to truncate input, degrading embedding quality for longer passages.
+	// Deep dive on the pgmemory write pipeline embedding flow.
+	{`The write pipeline in pgmemory processes every piece of text through a sequence of transformation stages before it reaches MongoDB. The first stage is chunking: the input text is split into segments of at most 512 tokens using the Chunk() function, which respects semantic boundaries including paragraph breaks, code block boundaries, list boundaries, and heading boundaries. Each chunk is designed to fit within the embedding model's context window — voyage-4-nano can embed sequences of up to 512 tokens in a single forward pass, producing one 1024-dimensional float32 vector per chunk. Exceeding this window causes the model to truncate input, degrading embedding quality for longer passages.
 
 After chunking, each chunk passes through the noise filter (isNoise). The filter rejects content shorter than 20 characters on the grounds that such content carries insufficient semantic signal to be worth embedding. It also rejects content where fewer than 40% of characters are alphanumeric, targeting greetings, punctuation fragments, emoji strings, and other low-information-density content. Chunks that pass the noise filter are passed through the redact.Clean() function, which applies regular expression patterns to strip known secret formats — AWS keys, GitHub tokens, high-entropy strings, and connection strings with embedded passwords — replacing each match with a typed placeholder before embedding. The redaction step occurs before embedding deliberately: embedding a redacted placeholder is far better than embedding a live secret that could be extracted by an adversary with access to the embedding store.
 
 Following noise filtering and redaction, multi-chunk inputs undergo topic boundary detection. The pipeline batch-embeds all valid chunks together, then walks consecutive chunk embedding pairs measuring cosine similarity. When the similarity between adjacent chunks falls below 0.65 — the TopicBoundaryThreshold — the pipeline inserts a topic boundary and begins a new group. Chunks within a group are considered to discuss the same topic and are candidates for synthesis or join. The group accumulation also respects a character budget: groups exceeding 2048 characters are split even if the cosine similarity between adjacent chunks would otherwise keep them together, because re-embedding a group beyond 2048 characters risks exceeding the embedding model's context window during the synthesis re-embed step.
 
-Single-chunk groups proceed directly to the dedup check and then to storage. Multi-chunk groups take a different path: if the synthesizer is available (ANTHROPIC_API_KEY is set in the memoryd server environment), the pipeline calls synth.Synthesize() with all chunks in the group, asking Claude Haiku to distill them into a single coherent memory that preserves all technical details. The synthesized text is then re-embedded, dedup-checked, and stored as a single memory document. If the synthesizer is unavailable, the chunks are joined with a newline separator and the joined text is re-embedded and stored. In both cases, only one memory is stored per topic group regardless of how many chunks it contained. The WriteResult.Merged counter records the number of chunks that were absorbed into group memories — one less than the group size for each group.`, "longform"},
+Single-chunk groups proceed directly to the dedup check and then to storage. Multi-chunk groups take a different path: if the synthesizer is available (ANTHROPIC_API_KEY is set in the pgmemory server environment), the pipeline calls synth.Synthesize() with all chunks in the group, asking Claude Haiku to distill them into a single coherent memory that preserves all technical details. The synthesized text is then re-embedded, dedup-checked, and stored as a single memory document. If the synthesizer is unavailable, the chunks are joined with a newline separator and the joined text is re-embedded and stored. In both cases, only one memory is stored per topic group regardless of how many chunks it contained. The WriteResult.Merged counter records the number of chunks that were absorbed into group memories — one less than the group size for each group.`, "longform"},
 
 	// Deep dive on the steward's quality scoring and decay system.
-	{`The memoryd steward runs a quality maintenance sweep on an hourly schedule by default. Each sweep has three phases: quality scoring, pruning, and near-duplicate merging. The quality scoring phase iterates through all memories in batches of 500, computing a new quality_score for each memory using a compound formula that combines a retrieval frequency signal with a time-decay factor. The retrieval frequency component is log2(hit_count + 1) divided by log2(max_hits + 1), where hit_count is the number of times the memory has appeared in search results and max_hits is the highest hit_count among all memories in the current batch. This normalization ensures that the retrieval frequency score is always between 0 and 1 and scales relative to the most-retrieved memory in the store, preventing any single highly-retrieved memory from dominating the quality signal for the entire system.
+	{`The pgmemory steward runs a quality maintenance sweep on an hourly schedule by default. Each sweep has three phases: quality scoring, pruning, and near-duplicate merging. The quality scoring phase iterates through all memories in batches of 500, computing a new quality_score for each memory using a compound formula that combines a retrieval frequency signal with a time-decay factor. The retrieval frequency component is log2(hit_count + 1) divided by log2(max_hits + 1), where hit_count is the number of times the memory has appeared in search results and max_hits is the highest hit_count among all memories in the current batch. This normalization ensures that the retrieval frequency score is always between 0 and 1 and scales relative to the most-retrieved memory in the store, preventing any single highly-retrieved memory from dominating the quality signal for the entire system.
 
 The time-decay component of the quality score is a half-life exponential: 0.5 raised to the power of (days since last retrieval / half_life_days). The default half-life is 90 days. A memory retrieved today has a decay factor of 1.0; a memory last retrieved 90 days ago has a decay factor of 0.5; a memory last retrieved 180 days ago has a decay factor of 0.25. Critically, the effective half-life is scaled by the memory's content_score, which is set at write time by the content scoring system. A memory with content_score 0.9 decays with an effective half-life of 81 days (90 × 0.9); a memory with content_score 0.3 decays with an effective half-life of only 27 days (90 × 0.3). This asymmetry is intentional: memories identified as high-quality at ingest time are given much more patience before the steward considers pruning them.
 
@@ -222,20 +222,20 @@ The pruning phase deletes memories whose quality_score falls below 0.1, subject 
 The content_score that influences decay rate is computed by the ContentScorer at write time. The scorer embeds six quality prototype strings — examples of high-value technical decisions and architectural notes — and three noise prototype strings — examples of greetings and filler content. For each incoming chunk, the scorer computes the average cosine similarity to quality prototypes and the average cosine similarity to noise prototypes, then computes the ratio quality_avg / (quality_avg + noise_avg). This ratio is stored as the content_score. A chunk semantically similar to "we decided to use X because of Y constraint" scores near 1.0; a chunk similar to "sounds good, let me know" scores near 0.0. The content_score is computed once at write time and never updated, meaning it represents the quality signal available from the content itself — independent of whether Claude later finds it useful.`, "longform"},
 
 	// Deep dive on the quality tracker and learning mode.
-	{`memoryd's quality tracker operates in two distinct modes: learning mode and production mode. In learning mode, the system stores and surfaces all memories regardless of their quality scores, collecting retrieval feedback to understand what kinds of content Claude finds useful. Production mode activates after the tracker records at least 50 retrieval events — a configurable threshold. Once in production mode, the read pipeline applies quality-aware filtering to search results, preferring memories that have demonstrated retrieval value over memories that have never been retrieved. The 50-event threshold was chosen as the minimum dataset size needed to distinguish signal from noise: with fewer than 50 retrieval events, the quality scores don't yet reflect stable patterns.
+	{`pgmemory's quality tracker operates in two distinct modes: learning mode and production mode. In learning mode, the system stores and surfaces all memories regardless of their quality scores, collecting retrieval feedback to understand what kinds of content Claude finds useful. Production mode activates after the tracker records at least 50 retrieval events — a configurable threshold. Once in production mode, the read pipeline applies quality-aware filtering to search results, preferring memories that have demonstrated retrieval value over memories that have never been retrieved. The 50-event threshold was chosen as the minimum dataset size needed to distinguish signal from noise: with fewer than 50 retrieval events, the quality scores don't yet reflect stable patterns.
 
 The quality tracker records a retrieval event every time a memory appears in search results. Each event increments the memory's hit_count field in MongoDB and updates its last_retrieved timestamp. The tracker also maintains an aggregate event counter in MongoDB. The event counter is persistent — it survives restarts — while the per-memory hit_count accumulates across the lifetime of the memory document. When the event counter crosses the 50-event threshold, the tracker transitions from learning mode to production mode and begins applying minimum quality score filters in the read pipeline. This transition happens automatically without requiring any configuration change.
 
 In production mode, the read pipeline uses quality scores to filter search results. The read pipeline calls the store's VectorSearch or HybridSearch with MinQualityScore=0.05. This filter excludes memories whose quality_score has been set below 0.05 by the steward — content that has been repeatedly scored and found to be low-value. Memories with quality_score == 0 (newly stored, never scored by the steward) are treated as unrated and pass through the filter: the pre-filter includes both quality_score >= 0.05 and quality_score == 0. This ensures new memories are always retrievable even in production mode, preventing a circular problem where new memories can never be retrieved and therefore can never accumulate the hit_count needed to improve their quality score.
 
-The learning mode design means that memoryd systems in early deployment — where Claude has just started accumulating memories — behave differently from mature systems with hundreds of retrieval events. In early deployment, all stored content is retrievable and quality scores don't affect search. In mature deployment, the quality filter pruning kicks in, preferentially surfacing memories that have proven useful. This longitudinal quality improvement is the core mechanism of memoryd's adaptive quality system: the more Claude uses the memory store, the more accurately the system understands which memories are worth retrieving.`, "longform"},
+The learning mode design means that pgmemory systems in early deployment — where Claude has just started accumulating memories — behave differently from mature systems with hundreds of retrieval events. In early deployment, all stored content is retrievable and quality scores don't affect search. In mature deployment, the quality filter pruning kicks in, preferentially surfacing memories that have proven useful. This longitudinal quality improvement is the core mechanism of pgmemory's adaptive quality system: the more Claude uses the memory store, the more accurately the system understands which memories are worth retrieving.`, "longform"},
 
 	// Deep dive on the topic boundary detection and synthesis trigger.
-	{`memoryd's topic detection algorithm segments multi-chunk text into groups of topically related chunks before deciding how to store them. The algorithm walks through the sequence of chunk embedding vectors in order, computing the cosine similarity between each consecutive pair. When the similarity between chunk N and chunk N+1 falls below 0.65 — the TopicBoundaryThreshold — a topic boundary is inserted between them. Chunks accumulated up to the boundary form one group; chunks after the boundary start a new group. The algorithm is sequential and local: it only looks at adjacent pairs, not at global cluster structure. This means a gradual topic drift across many paragraphs can pass through the boundary detector undetected if each individual paragraph-to-paragraph transition stays above 0.65, while an abrupt section change in an otherwise single-topic document correctly splits into two groups.
+	{`pgmemory's topic detection algorithm segments multi-chunk text into groups of topically related chunks before deciding how to store them. The algorithm walks through the sequence of chunk embedding vectors in order, computing the cosine similarity between each consecutive pair. When the similarity between chunk N and chunk N+1 falls below 0.65 — the TopicBoundaryThreshold — a topic boundary is inserted between them. Chunks accumulated up to the boundary form one group; chunks after the boundary start a new group. The algorithm is sequential and local: it only looks at adjacent pairs, not at global cluster structure. This means a gradual topic drift across many paragraphs can pass through the boundary detector undetected if each individual paragraph-to-paragraph transition stays above 0.65, while an abrupt section change in an otherwise single-topic document correctly splits into two groups.
 
 The 0.65 topic boundary threshold was chosen to separate distinct topics while keeping closely related subtopics in the same group. Content discussing different aspects of the same technical concept — such as the motivation for a design decision followed by the implementation details of that decision — typically has consecutive chunk similarity in the 0.65–0.85 range and stays in one group. Content discussing genuinely different topics — such as a section about database indexing followed by a section about network security — typically has similarity below 0.60 and correctly splits. The threshold is intentionally set lower than the dedup threshold (0.92) to be more inclusive: it is better to group slightly divergent content and distill it together than to fragment closely related content into separate memories that might not retrieve together when needed.
 
-Within each topic group, the write pipeline decides how to produce a single stored memory from potentially multiple chunks. For single-chunk groups, the pre-computed chunk embedding is used directly without any additional embedding call. For multi-chunk groups, the pipeline checks whether the synthesizer is available. If the synthesizer is available — meaning ANTHROPIC_API_KEY is set in the memoryd server environment and the synthesizer was initialized successfully — it calls synth.Synthesize() with all chunks in the group. The synthesizer sends the chunks to Claude Haiku with a prompt that instructs it to distill them into a concise standalone memory, preserving all specific technical details, avoiding preamble or meta-commentary, and using markdown formatting where appropriate. The resulting synthesized text is then re-embedded from scratch (not averaged from existing chunk embeddings) because the synthesized content often differs substantially from any individual chunk.
+Within each topic group, the write pipeline decides how to produce a single stored memory from potentially multiple chunks. For single-chunk groups, the pre-computed chunk embedding is used directly without any additional embedding call. For multi-chunk groups, the pipeline checks whether the synthesizer is available. If the synthesizer is available — meaning ANTHROPIC_API_KEY is set in the pgmemory server environment and the synthesizer was initialized successfully — it calls synth.Synthesize() with all chunks in the group. The synthesizer sends the chunks to Claude Haiku with a prompt that instructs it to distill them into a concise standalone memory, preserving all specific technical details, avoiding preamble or meta-commentary, and using markdown formatting where appropriate. The resulting synthesized text is then re-embedded from scratch (not averaged from existing chunk embeddings) because the synthesized content often differs substantially from any individual chunk.
 
 If the synthesizer is unavailable, multi-chunk groups are handled by simple string joining: the chunks are concatenated with newline separators, and the resulting joined text is re-embedded. The join approach preserves all original content but produces a less coherent memory: the joined text reads as a sequence of separate paragraphs rather than as an integrated explanation. For retrieval purposes, this distinction matters because the embedding of joined text reflects an average of the constituent chunks' topics, while synthesized text has an embedding that reflects the distilled concept's precise meaning. Synthesis-generated memories tend to retrieve with slightly higher cosine similarity to targeted queries because the content is structured as a coherent statement about one topic, not as a juxtaposition of related fragments.`, "longform"},
 }
@@ -560,7 +560,7 @@ func writeReport(w io.Writer, runID, source string, synthesisOn bool,
 		mode = "with synthesis (ANTHROPIC_API_KEY set)"
 	}
 
-	fmt.Fprintf(w, "# memoryd Corpus Eval — %s\n\n", runID)
+	fmt.Fprintf(w, "# pgmemory Corpus Eval — %s\n\n", runID)
 	fmt.Fprintf(w, "**Date:** %s  \n", time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(w, "**Mode:** %s  \n", mode)
 	fmt.Fprintf(w, "**Source tag:** `%s`  \n", source)
@@ -689,7 +689,7 @@ func writeReport(w io.Writer, runID, source string, synthesisOn bool,
 
 	// ---- How to compare synthesis vs no-synthesis ---------------------
 	fmt.Fprintf(w, "## Comparing Synthesis Modes\n\n")
-	fmt.Fprintf(w, "Run this eval twice — once with `ANTHROPIC_API_KEY` unset (memoryd started without the key)\n")
+	fmt.Fprintf(w, "Run this eval twice — once with `ANTHROPIC_API_KEY` unset (pgmemory started without the key)\n")
 	fmt.Fprintf(w, "and once with it set — and compare the two report files:\n\n")
 	fmt.Fprintf(w, "- **Wave 6 (longform)** — look at `merged` count and individual summaries.\n")
 	fmt.Fprintf(w, "  With synthesis, multi-chunk entries become one coherent memory;\n")
@@ -712,7 +712,7 @@ func truncate(s string, n int) string {
 // ---------------------------------------------------------------------------
 
 func main() {
-	baseURL := flag.String("base-url", "http://127.0.0.1:7432", "memoryd HTTP address")
+	baseURL := flag.String("base-url", "http://127.0.0.1:7432", "pgmemory HTTP address")
 	outputFile := flag.String("output", "", "write markdown report to this file (default: stdout)")
 	noCleanup := flag.Bool("no-cleanup", false, "retain eval memories after the run")
 	hfMode := flag.Bool("hf", false, "run HuggingFace pipeline optimiser instead of hardcoded corpus")
@@ -737,7 +737,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "[report] writing to %s\n", *outputFile)
 	}
 
-	// HF mode: optimise pipeline settings from real agent traces — no memoryd needed.
+	// HF mode: optimise pipeline settings from real agent traces — no pgmemory needed.
 	if *hfMode {
 		runHFEval(out, *baseURL, *sampleN, *noCleanup)
 		return
@@ -755,10 +755,10 @@ func main() {
 		return
 	}
 
-	// Check connectivity (hardcoded-corpus mode requires memoryd).
+	// Check connectivity (hardcoded-corpus mode requires pgmemory).
 	var health struct{ Status string }
 	if err := get(*baseURL, "/health", &health); err != nil {
-		fmt.Fprintf(os.Stderr, "cannot reach memoryd at %s: %v\n", *baseURL, err)
+		fmt.Fprintf(os.Stderr, "cannot reach pgmemory at %s: %v\n", *baseURL, err)
 		os.Exit(1)
 	}
 
@@ -766,7 +766,7 @@ func main() {
 	runID := time.Now().Format("2006-01-02T15-04-05")
 	source := "corpus-eval-" + runID
 
-	fmt.Fprintf(os.Stderr, "=== memoryd corpus eval (%s) ===\n", runID)
+	fmt.Fprintf(os.Stderr, "=== pgmemory corpus eval (%s) ===\n", runID)
 	fmt.Fprintf(os.Stderr, "target:    %s\n", *baseURL)
 	fmt.Fprintf(os.Stderr, "synthesis: %v (ANTHROPIC_API_KEY %s)\n", synthesisOn, keyStatus())
 	fmt.Fprintf(os.Stderr, "source:    %s\n\n", source)

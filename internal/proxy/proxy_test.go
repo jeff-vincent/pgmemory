@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/config"
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/store"
-	"github.com/memory-daemon/memoryd/internal/synthesizer"
+	"github.com/jeff-vincent/pgmemory/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/synthesizer"
 )
 
 func TestExtractResponseText_ValidResponse(t *testing.T) {
@@ -321,21 +321,6 @@ func TestExtractContentText_Blocks(t *testing.T) {
 	}
 }
 
-func TestFormatQAPair(t *testing.T) {
-	result := formatQAPair("How do I handle errors?", "Use the errors package.")
-	if !strings.Contains(result, "**Q:**") {
-		t.Error("expected Q label")
-	}
-	if !strings.Contains(result, "**A:**") {
-		t.Error("expected A label")
-	}
-	if !strings.Contains(result, "How do I handle errors?") {
-		t.Error("expected question text")
-	}
-	if !strings.Contains(result, "Use the errors package.") {
-		t.Error("expected answer text")
-	}
-}
 
 func TestExtractConversationTurns_MultiTurn(t *testing.T) {
 	raw := map[string]json.RawMessage{

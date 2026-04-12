@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/redact"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/redact"
 )
 
 // scenarioRedactAPIKey verifies that API keys embedded in content are scrubbed
@@ -56,7 +56,7 @@ func scenarioRedactConnectionString(ctx context.Context) error {
 		pattern string // must NOT appear in output
 	}{
 		{
-			input:   "Connect with: mongodb+srv://dbuser:s3cr3tPassw0rd@cluster0.mongodb.net/memoryd?retryWrites=true",
+			input:   "Connect with: mongodb+srv://dbuser:s3cr3tPassw0rd@cluster0.mongodb.net/pgmemory?retryWrites=true",
 			pattern: "s3cr3tPassw0rd",
 		},
 		{
@@ -150,7 +150,7 @@ func scenarioRedactJWT(ctx context.Context) error {
 // scenarioRedactMultilineSecret verifies that multi-line secrets like PEM private
 // keys are fully scrubbed even when they span many lines of content.
 func scenarioRedactMultilineSecret(ctx context.Context) error {
-	raw := `To configure TLS for the memoryd server, add the following private key to your config:
+	raw := `To configure TLS for the pgmemory server, add the following private key to your config:
 
 -----BEGIN RSA PRIVATE KEY-----
 MIIEowIBAAKCAQEA0Z3VS5JJcds3xHn/ygWep4PAtEsHAD6RNHQgTU0Wd0p5KDJ

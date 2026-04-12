@@ -53,7 +53,7 @@ const tokenLoginPage = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>memoryd – sign in</title>
+  <title>pgmemory – sign in</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -87,10 +87,10 @@ const tokenLoginPage = `<!DOCTYPE html>
 </head>
 <body>
 <div class="card">
-  <h1>memoryd dashboard</h1>
+  <h1>pgmemory dashboard</h1>
   <p>Paste your local API token to open the dashboard.<br>
-     You can find it in the memoryd tray menu under <strong>Open Dashboard</strong>,
-     or in <code>~/.memoryd/token</code>.</p>
+     You can find it in the pgmemory tray menu under <strong>Open Dashboard</strong>,
+     or in <code>~/.pgmemory/token</code>.</p>
   <label for="tok">API token</label>
   <input id="tok" type="password" placeholder="64-character hex token" autocomplete="off" autofocus>
   <button onclick="go()">Open dashboard</button>

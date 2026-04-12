@@ -1,4 +1,4 @@
-// Package eval runs qualitative A/B comparisons of Claude with and without memoryd.
+// Package eval runs qualitative A/B comparisons of Claude with and without pgmemory.
 package eval
 
 import (
@@ -51,7 +51,7 @@ type ScenarioResult struct {
 type Config struct {
 	AnthropicKey string
 	AnthropicURL string
-	MemorydURL   string
+	PgmemoryURL   string
 	Model        string
 	JudgeModel   string
 	MaxTokens    int
@@ -66,8 +66,8 @@ func NewHarness(cfg Config) *Harness {
 	if cfg.AnthropicURL == "" {
 		cfg.AnthropicURL = "https://api.anthropic.com"
 	}
-	if cfg.MemorydURL == "" {
-		cfg.MemorydURL = "http://127.0.0.1:7432"
+	if cfg.PgmemoryURL == "" {
+		cfg.PgmemoryURL = "http://127.0.0.1:7432"
 	}
 	if cfg.Model == "" {
 		cfg.Model = "claude-sonnet-4-20250514"
@@ -135,7 +135,7 @@ func (h *Harness) RunAll(ctx context.Context, scenarios []Scenario) ([]ScenarioR
 func (h *Harness) seedMemories(ctx context.Context, seeds []string) error {
 	for _, s := range seeds {
 		body, _ := json.Marshal(map[string]string{"content": s, "source": "eval-seed"})
-		req, _ := http.NewRequestWithContext(ctx, "POST", h.cfg.MemorydURL+"/api/store", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(ctx, "POST", h.cfg.PgmemoryURL+"/api/store", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := h.client.Do(req)
 		if err != nil {
@@ -147,7 +147,7 @@ func (h *Harness) seedMemories(ctx context.Context, seeds []string) error {
 }
 
 func (h *Harness) clearMemories(ctx context.Context) error {
-	req, _ := http.NewRequestWithContext(ctx, "GET", h.cfg.MemorydURL+"/api/memories", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", h.cfg.PgmemoryURL+"/api/memories", nil)
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return err
@@ -160,7 +160,7 @@ func (h *Harness) clearMemories(ctx context.Context) error {
 		return err
 	}
 	for _, m := range memories {
-		dreq, _ := http.NewRequestWithContext(ctx, "DELETE", h.cfg.MemorydURL+"/api/memories/"+m.ID, nil)
+		dreq, _ := http.NewRequestWithContext(ctx, "DELETE", h.cfg.PgmemoryURL+"/api/memories/"+m.ID, nil)
 		dr, err := h.client.Do(dreq)
 		if err != nil {
 			return err
@@ -172,7 +172,7 @@ func (h *Harness) clearMemories(ctx context.Context) error {
 
 func (h *Harness) retrieveContext(ctx context.Context, query string) (string, []float64, error) {
 	body, _ := json.Marshal(map[string]string{"query": query})
-	req, _ := http.NewRequestWithContext(ctx, "POST", h.cfg.MemorydURL+"/api/search", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", h.cfg.PgmemoryURL+"/api/search", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.client.Do(req)
 	if err != nil {

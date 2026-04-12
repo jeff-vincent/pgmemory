@@ -7,26 +7,26 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/config"
-	"github.com/memory-daemon/memoryd/internal/embedding"
-	"github.com/memory-daemon/memoryd/internal/ingest"
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/rejection"
-	"github.com/memory-daemon/memoryd/internal/store"
-	"github.com/memory-daemon/memoryd/internal/synthesizer"
+	"github.com/jeff-vincent/pgmemory/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/ingest"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/rejection"
+	"github.com/jeff-vincent/pgmemory/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/synthesizer"
 )
 
-// Server is the memoryd HTTP proxy.
+// Server is the pgmemory HTTP proxy.
 type Server struct {
-	httpServer  *http.Server
-	addr        string
-	token       string
-	version     string
-	mode        string
-	startedAt   time.Time
-	mongoStatus func() string // optional: returns "connected", "connecting", etc.
-	cfg         *config.Config
+	httpServer *http.Server
+	addr       string
+	token      string
+	version    string
+	mode       string
+	startedAt  time.Time
+	dbStatus   func() string // optional: returns "connected", "connecting", etc.
+	cfg        *config.Config
 }
 
 type serverOpts struct {
@@ -38,7 +38,7 @@ type serverOpts struct {
 	stewardStats StewardStatsProvider
 	synth        *synthesizer.Synthesizer
 	rejLog       *rejection.Store
-	mongoStatus  func() string
+	dbStatus     func() string
 }
 
 // StewardStatsProvider exposes steward sweep results to the dashboard.
@@ -97,9 +97,9 @@ func WithRejectionLog(rl *rejection.Store) ServerOption {
 	return func(o *serverOpts) { o.rejLog = rl }
 }
 
-// WithMongoStatus provides a callback that returns the current MongoDB connection status.
-func WithMongoStatus(fn func() string) ServerOption {
-	return func(o *serverOpts) { o.mongoStatus = fn }
+// WithDBStatus provides a callback that returns the current database connection status.
+func WithDBStatus(fn func() string) ServerOption {
+	return func(o *serverOpts) { o.dbStatus = fn }
 }
 
 // NewServer wires up all endpoints and returns a ready-to-start server.
@@ -129,10 +129,10 @@ func NewServer(cfg *config.Config, version string, read *pipeline.ReadPipeline, 
 			"started_at": startedAt.UTC().Format(time.RFC3339),
 			"uptime_s":   int(time.Since(startedAt).Seconds()),
 		}
-		if so.mongoStatus != nil {
-			resp["mongodb"] = so.mongoStatus()
+		if so.dbStatus != nil {
+			resp["database"] = so.dbStatus()
 		} else {
-			resp["mongodb"] = "connected"
+			resp["database"] = "connected"
 		}
 		json.NewEncoder(w).Encode(resp)
 	})
@@ -157,18 +157,18 @@ func NewServer(cfg *config.Config, version string, read *pipeline.ReadPipeline, 
 			Addr:    addr,
 			Handler: handler,
 		},
-		addr:        addr,
-		token:       token,
-		version:     version,
-		mode:        mode,
-		startedAt:   startedAt,
-		mongoStatus: so.mongoStatus,
-		cfg:         cfg,
+		addr:      addr,
+		token:     token,
+		version:   version,
+		mode:      mode,
+		startedAt: startedAt,
+		dbStatus:  so.dbStatus,
+		cfg:       cfg,
 	}
 }
 
 func (s *Server) Start() error {
-	fmt.Printf("memoryd listening on %s\n", s.addr)
+	fmt.Printf("pgmemory listening on %s\n", s.addr)
 	fmt.Printf("  export ANTHROPIC_BASE_URL=http://%s\n", s.addr)
 	if s.token != "" {
 		fmt.Printf("  Dashboard: http://%s/?token=%s\n", s.addr, s.token)
@@ -191,12 +191,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // Rewire rebuilds the HTTP handler with new pipeline components. This is
-// called after a delayed MongoDB connection succeeds and the full pipeline
+// called after a delayed database connection succeeds and the full pipeline
 // is wired up. The swap is atomic per-request — in-flight requests finish
 // on the old handler, new requests use the new one.
 func (s *Server) Rewire(read *pipeline.ReadPipeline, write *pipeline.WritePipeline, opts ...ServerOption) {
 	var so serverOpts
-	so.mongoStatus = s.mongoStatus
+	so.dbStatus = s.dbStatus
 	for _, o := range opts {
 		o(&so)
 	}
@@ -211,7 +211,7 @@ func (s *Server) Rewire(read *pipeline.ReadPipeline, write *pipeline.WritePipeli
 	version := s.version
 	mode := s.mode
 	synthAvail := so.synth != nil && so.synth.Available()
-	mongoStatusFn := so.mongoStatus
+	dbStatusFn := so.dbStatus
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -223,10 +223,10 @@ func (s *Server) Rewire(read *pipeline.ReadPipeline, write *pipeline.WritePipeli
 			"started_at": startedAt.UTC().Format(time.RFC3339),
 			"uptime_s":   int(time.Since(startedAt).Seconds()),
 		}
-		if mongoStatusFn != nil {
-			resp["mongodb"] = mongoStatusFn()
+		if dbStatusFn != nil {
+			resp["database"] = dbStatusFn()
 		} else {
-			resp["mongodb"] = "connected"
+			resp["database"] = "connected"
 		}
 		json.NewEncoder(w).Encode(resp)
 	})

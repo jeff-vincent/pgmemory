@@ -22,26 +22,26 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/memory-daemon/memoryd/internal/config"
-	"github.com/memory-daemon/memoryd/internal/credential"
-	"github.com/memory-daemon/memoryd/internal/embedding"
-	"github.com/memory-daemon/memoryd/internal/export"
-	"github.com/memory-daemon/memoryd/internal/ingest"
-	"github.com/memory-daemon/memoryd/internal/mcp"
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/proxy"
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/rejection"
-	"github.com/memory-daemon/memoryd/internal/steward"
-	"github.com/memory-daemon/memoryd/internal/store"
-	"github.com/memory-daemon/memoryd/internal/synthesizer"
+	"github.com/jeff-vincent/pgmemory/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/credential"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/export"
+	"github.com/jeff-vincent/pgmemory/internal/ingest"
+	"github.com/jeff-vincent/pgmemory/internal/mcp"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/proxy"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/rejection"
+	"github.com/jeff-vincent/pgmemory/internal/steward"
+	"github.com/jeff-vincent/pgmemory/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/synthesizer"
 )
 
 var version = "dev"
 
 func main() {
 	root := &cobra.Command{
-		Use:   "memoryd",
+		Use:   "pgmemory",
 		Short: "Persistent memory layer for coding agents",
 	}
 
@@ -70,7 +70,7 @@ func main() {
 func startCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start",
-		Short: "Start the memoryd daemon",
+		Short: "Start the pgmemory daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := config.WriteDefault(); err != nil {
 				return fmt.Errorf("init config: %w", err)
@@ -91,8 +91,8 @@ func startCmd() *cobra.Command {
 
 			// Stop any existing daemon on this port.
 			addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
-			if existingIsMemoryd(addr) {
-				log.Printf("Stopping existing memoryd on port %d...", cfg.Port)
+			if existingIsPgmemory(addr) {
+				log.Printf("Stopping existing pgmemory on port %d...", cfg.Port)
 				shutdownExisting(addr)
 			} else if !portAvailable(addr) {
 				return fmt.Errorf("port %d is already in use by another process", cfg.Port)
@@ -142,20 +142,20 @@ func startCmd() *cobra.Command {
 
 			var wiredMu sync.Mutex
 			var (
-				emb      embedding.Embedder
-				read     *pipeline.ReadPipeline
-				write    *pipeline.WritePipeline
-				qt       *quality.Tracker
-				rejLog   *rejection.Store
-				ing      *ingest.Ingester
-				stw      *steward.Steward
-				synth    *synthesizer.Synthesizer
+				emb    embedding.Embedder
+				read   *pipeline.ReadPipeline
+				write  *pipeline.WritePipeline
+				qt     *quality.Tracker
+				rejLog *rejection.Store
+				ing    *ingest.Ingester
+				stw    *steward.Steward
+				synth  *synthesizer.Synthesizer
 			)
 
 			wirePipeline := func(ps *store.PostgresStore) error {
 				if err := ps.CheckVectorIndex(ctx); err != nil {
 					log.Printf("WARNING: %v", err)
-					log.Println("memoryd will start, but vector search will not work until pgvector is installed.")
+					log.Println("pgmemory will start, but vector search will not work until pgvector is installed.")
 				} else {
 					log.Println("  pgvector verified")
 				}
@@ -299,13 +299,16 @@ func startCmd() *cobra.Command {
 			// Wire up the pipeline if database connected on first try.
 			if connErr == nil {
 				if err := wirePipeline(pgStore); err != nil {
-					return err
+					log.Printf("ERROR: pipeline init failed (will retry): %v", err)
+					// Treat as a deferred pipeline — the server starts degraded.
+					connErr = err
+				} else {
+					startDBMonitor(ctx)
 				}
-				startDBMonitor(ctx)
 			}
 
 			var serverOpts []proxy.ServerOption
-			serverOpts = append(serverOpts, proxy.WithMongoStatus(dbStatusFn))
+			serverOpts = append(serverOpts, proxy.WithDBStatus(dbStatusFn))
 
 			wiredMu.Lock()
 			if pgStore != nil {
@@ -326,7 +329,7 @@ func startCmd() *cobra.Command {
 
 			srv := proxy.NewServer(cfg, version, read, write, serverOpts...)
 
-			// If database failed, retry in the background.
+			// If database or pipeline failed, retry in the background.
 			if connErr != nil {
 				go func() {
 					backoff := 10 * time.Second
@@ -338,28 +341,43 @@ func startCmd() *cobra.Command {
 						case <-time.After(backoff):
 						}
 
-						log.Println("Retrying database connection...")
-						ps, ep, err := connectPostgres()
-						if err != nil {
-							log.Printf("  Database still unreachable: %v", err)
+						log.Println("Retrying pipeline initialization...")
+
+						wiredMu.Lock()
+						ps := pgStore
+						ep := epg
+						wiredMu.Unlock()
+
+						// Re-establish DB connection if needed.
+						if ps == nil {
+							var err error
+							ps, ep, err = connectPostgres()
+							if err != nil {
+								log.Printf("  Database still unreachable: %v", err)
+								if backoff < maxBackoff {
+									backoff = backoff * 2
+									if backoff > maxBackoff {
+										backoff = maxBackoff
+									}
+								}
+								continue
+							}
+							log.Println("Database connected!")
+							dbStatus.Store("connected")
+						}
+
+						wiredMu.Lock()
+						pgStore = ps
+						epg = ep
+						if wErr := wirePipeline(ps); wErr != nil {
+							log.Printf("  Pipeline not ready: %v", wErr)
+							wiredMu.Unlock()
 							if backoff < maxBackoff {
 								backoff = backoff * 2
 								if backoff > maxBackoff {
 									backoff = maxBackoff
 								}
 							}
-							continue
-						}
-
-						log.Println("Database connected!")
-						dbStatus.Store("connected")
-
-						wiredMu.Lock()
-						pgStore = ps
-						epg = ep
-						if wErr := wirePipeline(ps); wErr != nil {
-							log.Printf("ERROR: failed to wire pipeline after connect: %v", wErr)
-							wiredMu.Unlock()
 							continue
 						}
 
@@ -379,7 +397,7 @@ func startCmd() *cobra.Command {
 						srv.Rewire(read, write, rewireOpts...)
 						wiredMu.Unlock()
 
-						log.Println("Full pipeline active — memoryd is fully operational")
+						log.Println("Full pipeline active — pgmemory is fully operational")
 						startDBMonitor(ctx)
 						return
 					}
@@ -436,8 +454,8 @@ func portAvailable(addr string) bool {
 	return true
 }
 
-// existingIsMemoryd checks if a running memoryd instance is on the port.
-func existingIsMemoryd(addr string) bool {
+// existingIsPgmemory checks if a running pgmemory instance is on the port.
+func existingIsPgmemory(addr string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get("http://" + addr + "/health")
 	if err != nil {
@@ -491,7 +509,7 @@ func mcpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
 		Short: "Run as an MCP (Model Context Protocol) server over stdio",
-		Long:  "Starts an MCP server that communicates over stdin/stdout. Requires the memoryd daemon to be running.",
+		Long:  "Starts an MCP server that communicates over stdin/stdout. Requires the pgmemory daemon to be running.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -501,7 +519,7 @@ func mcpCmd() *cobra.Command {
 			// Verify daemon is running
 			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port))
 			if err != nil {
-				return fmt.Errorf("memoryd daemon is not running -- start it with: memoryd start")
+				return fmt.Errorf("pgmemory daemon is not running -- start it with: pgmemory start")
 			}
 			resp.Body.Close()
 
@@ -522,11 +540,11 @@ func statusCmd() *cobra.Command {
 			}
 			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port))
 			if err != nil {
-				fmt.Println("memoryd is not running")
+				fmt.Println("pgmemory is not running")
 				return nil
 			}
 			resp.Body.Close()
-			fmt.Printf("memoryd is running on port %d\n", cfg.Port)
+			fmt.Printf("pgmemory is running on port %d\n", cfg.Port)
 			return nil
 		},
 	}
@@ -641,9 +659,9 @@ func envCmd() *cobra.Command {
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print memoryd version",
+		Short: "Print pgmemory version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("memoryd %s\n", version)
+			fmt.Printf("pgmemory %s\n", version)
 		},
 	}
 }
@@ -698,10 +716,10 @@ func credentialsCmd() *cobra.Command {
 		},
 		&cobra.Command{
 			Use:   "clear",
-			Short: "Remove all memoryd credentials from OS keychain",
+			Short: "Remove all pgmemory credentials from OS keychain",
 			RunE: func(cmd *cobra.Command, args []string) error {
 				config.DeleteCredentials()
-				fmt.Println("All memoryd credentials removed from OS keychain.")
+				fmt.Println("All pgmemory credentials removed from OS keychain.")
 				return nil
 			},
 		},
@@ -812,7 +830,7 @@ func ingestCmd() *cobra.Command {
 			req, _ := daemonRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/sources", cfg.Port), bytes.NewReader(body))
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return fmt.Errorf("daemon not running -- start it with: memoryd start")
+				return fmt.Errorf("daemon not running -- start it with: pgmemory start")
 			}
 			defer resp.Body.Close()
 
@@ -913,7 +931,7 @@ func uploadCmd() *cobra.Command {
 			req, _ := daemonRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/sources/upload", cfg.Port), bytes.NewReader(body))
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return fmt.Errorf("daemon not running -- start it with: memoryd start")
+				return fmt.Errorf("daemon not running -- start it with: pgmemory start")
 			}
 			defer resp.Body.Close()
 
@@ -946,7 +964,7 @@ func sourcesCmd() *cobra.Command {
 			req, _ := daemonRequest("GET", fmt.Sprintf("http://127.0.0.1:%d/api/sources", cfg.Port), nil)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return fmt.Errorf("daemon not running -- start it with: memoryd start")
+				return fmt.Errorf("daemon not running -- start it with: pgmemory start")
 			}
 			defer resp.Body.Close()
 
@@ -981,7 +999,7 @@ func sourcesCmd() *cobra.Command {
 				fmt.Sprintf("http://127.0.0.1:%d/api/sources/%s", cfg.Port, args[0]), nil)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return fmt.Errorf("daemon not running -- start it with: memoryd start")
+				return fmt.Errorf("daemon not running -- start it with: pgmemory start")
 			}
 			defer resp.Body.Close()
 
@@ -1019,7 +1037,7 @@ func exportCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringP("output", "o", "memoryd-export", "Output directory for the doc set")
+	cmd.Flags().StringP("output", "o", "pgmemory-export", "Output directory for the doc set")
 	cmd.Flags().Float64("min-quality", 0, "Only include memories with quality_score >= this value (0 = all)")
 	return cmd
 }

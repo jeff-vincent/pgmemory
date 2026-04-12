@@ -11,7 +11,7 @@ import (
 // Report writes a human-readable comparison report.
 func Report(w io.Writer, results []ScenarioResult) {
 	fmt.Fprintf(w, "\n%s\n", strings.Repeat("=", 72))
-	fmt.Fprintf(w, "  memoryd eval — bare Claude vs Claude + memoryd\n")
+	fmt.Fprintf(w, "  pgmemory eval — bare Claude vs Claude + pgmemory\n")
 	fmt.Fprintf(w, "%s\n\n", strings.Repeat("=", 72))
 
 	var totalBare, totalAug, totalCriteria int

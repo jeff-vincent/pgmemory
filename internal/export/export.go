@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 )
 
 // ExportStore is the minimal store surface the exporter needs.
@@ -34,7 +34,7 @@ type Options struct {
 // Run exports the knowledge base to a directory of documents.
 func Run(ctx context.Context, s ExportStore, opts Options) error {
 	if opts.OutputDir == "" {
-		opts.OutputDir = "memoryd-export"
+		opts.OutputDir = "pgmemory-export"
 	}
 	if opts.Format == "" {
 		opts.Format = "markdown"
@@ -123,7 +123,7 @@ func Run(ctx context.Context, s ExportStore, opts Options) error {
 
 	// Write index.
 	var idx strings.Builder
-	idx.WriteString("# memoryd Knowledge Base Export\n\n")
+	idx.WriteString("# pgmemory Knowledge Base Export\n\n")
 	idx.WriteString(fmt.Sprintf("> %d memories across %d sources | exported %s\n\n",
 		totalWritten, len(sources), time.Now().Format("2006-01-02 15:04")))
 

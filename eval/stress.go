@@ -16,7 +16,7 @@ import (
 
 // StressConfig controls the stress test parameters.
 type StressConfig struct {
-	MemorydURL      string
+	PgmemoryURL      string
 	TotalMemories   int           // how many memories to generate and store (default 1000)
 	BatchSize       int           // memories per batch (default 50)
 	Checkpoints     []int         // dataset sizes at which to measure retrieval (default [100,250,500,1000])
@@ -277,8 +277,8 @@ var fragments = map[string]struct{
 	},
 	"deployment": {
 		subjects: []string{
-			"The memoryd Docker image",
-			"The systemd unit file for memoryd",
+			"The pgmemory Docker image",
+			"The systemd unit file for pgmemory",
 			"The Kubernetes Deployment manifest",
 			"The GitHub Actions release workflow",
 			"The goreleaser cross-compilation config",
@@ -309,7 +309,7 @@ var fragments = map[string]struct{
 			"Migrations are idempotent: each checks if the index/collection already exists before creating.",
 			"Flag values are read from a ConfigMap that can be updated without restarting any pods.",
 			"Runtime resolves MEMORYD_ANTHROPIC_KEY from the environment at startup not from the file.",
-			"Cross-compilation works because memoryd has zero CGo dependencies in the core binary.",
+			"Cross-compilation works because pgmemory has zero CGo dependencies in the core binary.",
 			"The install script detects arm64 vs x86_64 using uname -m and maps to the archive suffix.",
 		},
 		contexts: []string{
@@ -563,7 +563,7 @@ var fragments = map[string]struct{
 			"The localhost shorthand expands to mongodb://localhost:27017/?directConnection=true automatically.",
 		},
 		contexts: []string{
-			"Port configurability was needed when users ran memoryd alongside other services on 7432.",
+			"Port configurability was needed when users ran pgmemory alongside other services on 7432.",
 			"Zero-config defaults significantly reduced the number of setup issues reported during onboarding.",
 			"Hot reload was implemented for the quality tuning phase so we could adjust thresholds live.",
 			"Feature flags allowed A/B testing different retrieval depths without separate deployments.",
@@ -591,7 +591,7 @@ var queries = map[string][]string{
 	"configuration":  {"config validation at startup", "hot reload config file", "feature flags configuration", "secret rotation strategy"},
 }
 
-// StressRunner executes stress tests against memoryd.
+// StressRunner executes stress tests against pgmemory.
 type StressRunner struct {
 	cfg    StressConfig
 	client *http.Client
@@ -599,8 +599,8 @@ type StressRunner struct {
 }
 
 func NewStressRunner(cfg StressConfig) *StressRunner {
-	if cfg.MemorydURL == "" {
-		cfg.MemorydURL = "http://127.0.0.1:7432"
+	if cfg.PgmemoryURL == "" {
+		cfg.PgmemoryURL = "http://127.0.0.1:7432"
 	}
 	if cfg.TotalMemories == 0 {
 		cfg.TotalMemories = 1000
@@ -627,8 +627,8 @@ func NewStressRunner(cfg StressConfig) *StressRunner {
 func (s *StressRunner) Run(ctx context.Context, w io.Writer) (*StressResult, error) {
 	start := time.Now()
 
-	fmt.Fprintf(w, "\n=== memoryd stress test ===\n")
-	fmt.Fprintf(w, "  target:      %s\n", s.cfg.MemorydURL)
+	fmt.Fprintf(w, "\n=== pgmemory stress test ===\n")
+	fmt.Fprintf(w, "  target:      %s\n", s.cfg.PgmemoryURL)
 	fmt.Fprintf(w, "  memories:    %d\n", s.cfg.TotalMemories)
 	fmt.Fprintf(w, "  concurrency: %d\n", s.cfg.Concurrency)
 	fmt.Fprintf(w, "  checkpoints: %v\n\n", s.cfg.Checkpoints)
@@ -766,7 +766,7 @@ func (s *StressRunner) insertBatch(ctx context.Context, batch []stressMemory) (s
 				"content": mem.content,
 				"source":  "eval-stress-" + mem.topic,
 			})
-			req, _ := http.NewRequestWithContext(ctx, "POST", s.cfg.MemorydURL+"/api/store", bytes.NewReader(body))
+			req, _ := http.NewRequestWithContext(ctx, "POST", s.cfg.PgmemoryURL+"/api/store", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 
 			start := time.Now()
@@ -833,7 +833,7 @@ func (s *StressRunner) measureCheckpoint(ctx context.Context, memCount int, stor
 	for _, q := range allQueries {
 		start := time.Now()
 		body, _ := json.Marshal(map[string]string{"query": q.query})
-		req, _ := http.NewRequestWithContext(ctx, "POST", s.cfg.MemorydURL+"/api/search", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(ctx, "POST", s.cfg.PgmemoryURL+"/api/search", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := s.client.Do(req)

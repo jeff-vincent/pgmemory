@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memory-daemon/memoryd/internal/chunker"
+	"github.com/jeff-vincent/pgmemory/internal/chunker"
 )
 
 func TestGroupByHeading_NoHeadings(t *testing.T) {

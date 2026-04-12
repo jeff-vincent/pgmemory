@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# memoryd installer
+# pgmemory dev installer — build from source and run locally.
 # Usage:
-#   ./install.sh                              # local Docker MongoDB
-#   ./install.sh --atlas "mongodb+srv://..."  # Atlas connection string
+#   ./install-dev.sh                                   # embedded PostgreSQL (default)
+#   ./install-dev.sh --postgres "postgres://host/db"   # external PostgreSQL
 
-ATLAS_URI=""
+POSTGRES_URI=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --atlas) ATLAS_URI="$2"; shift 2 ;;
-    *) echo "Unknown option: $1"; echo "Usage: $0 [--atlas <connection_string>]"; exit 1 ;;
+    --postgres) POSTGRES_URI="$2"; shift 2 ;;
+    *) echo "Unknown option: $1"; echo "Usage: $0 [--postgres <connection_string>]"; exit 1 ;;
   esac
 done
 
-MEMORYD_DIR="$HOME/.memoryd"
+MEMORYD_DIR="$HOME/.pgmemory"
 MODEL_DIR="$MEMORYD_DIR/models"
 MODEL_PATH="$MODEL_DIR/voyage-4-nano.gguf"
 MODEL_URL="https://huggingface.co/jsonMartin/voyage-4-nano-gguf/resolve/main/voyage-4-nano-q8_0.gguf?download=true"
@@ -75,66 +75,38 @@ else
   ok "llama-server → /usr/local/bin/llama-server"
 fi
 
-# Docker (only required when not using Atlas)
-if [[ -z "$ATLAS_URI" ]]; then
-  if command -v docker &>/dev/null; then
-    if docker info &>/dev/null; then
-      ok "Docker is running"
-    else
-      fail "Docker is installed but not running"
-      info "Start Docker Desktop and try again"
-      exit 1
-    fi
+# pgvector (for embedded PostgreSQL)
+if [[ "$(uname)" == "Darwin" ]]; then
+  if brew list pgvector &>/dev/null 2>&1; then
+    ok "pgvector installed (Homebrew)"
   else
-    fail "Docker is not installed (required for local MongoDB)"
-    info "Install Docker Desktop, or pass --atlas <uri> to use Atlas instead"
-    exit 1
+    info "Installing pgvector via Homebrew..."
+    brew install pgvector
+    ok "pgvector installed"
   fi
 else
-  ok "Using Atlas connection string"
+  if dpkg -l | grep -q postgresql.*pgvector 2>/dev/null || [[ -f /usr/share/postgresql/*/extension/vector.control ]]; then
+    ok "pgvector available"
+  else
+    info "pgvector not found — embedded PostgreSQL will attempt to use it"
+    info "Install with: sudo apt install postgresql-16-pgvector (or equivalent)"
+  fi
 fi
 
-# ── MongoDB ─────────────────────────────────────────────────────────
+if [[ -n "$POSTGRES_URI" ]]; then
+  ok "Using external PostgreSQL"
+fi
 
-step "MongoDB"
+# ── Database ─────────────────────────────────────────────────────────
 
-if [[ -z "$ATLAS_URI" ]]; then
-  MONGO_URI="mongodb://localhost:27017/?directConnection=true"
+step "Database"
 
-  if docker ps --format '{{.Names}}' | grep -q '^memoryd-mongo$'; then
-    ok "memoryd-mongo container already running"
-  elif docker ps -a --format '{{.Names}}' | grep -q '^memoryd-mongo$'; then
-    info "Starting existing memoryd-mongo container..."
-    docker start memoryd-mongo >/dev/null
-    ok "memoryd-mongo started"
-  else
-    info "Creating memoryd-mongo container..."
-    docker run -d --name memoryd-mongo -p 27017:27017 mongodb/mongodb-atlas-local:8.0 >/dev/null
-    ok "memoryd-mongo created"
-    info "Waiting for MongoDB to be ready..."
-    for i in $(seq 1 30); do
-      if docker exec memoryd-mongo mongosh --quiet --eval 'db.runCommand({ping:1}).ok' 2>/dev/null | grep -q 1; then
-        break
-      fi
-      sleep 1
-    done
-  fi
-
-  # Create vector search index.
-  if [[ -f "$SCRIPT_DIR/scripts/create_index.js" ]]; then
-    info "Creating vector search index..."
-    docker cp "$SCRIPT_DIR/scripts/create_index.js" memoryd-mongo:/tmp/create_index.js 2>/dev/null
-    docker exec memoryd-mongo mongosh memoryd --quiet --file /tmp/create_index.js 2>/dev/null || true
-    ok "Vector search index ready"
-  else
-    fail "scripts/create_index.js not found — vector search won't work"
-    exit 1
-  fi
+if [[ -n "$POSTGRES_URI" ]]; then
+  ok "Using external PostgreSQL: ${POSTGRES_URI:0:30}..."
+  info "Ensure pgvector extension is available on the target database"
 else
-  MONGO_URI="$ATLAS_URI"
-  ok "Using Atlas: ${ATLAS_URI:0:30}..."
-  info "Make sure you've created a vector search index named 'vector_index'"
-  info "on the 'memories' collection with numDimensions: 1024, similarity: cosine"
+  ok "Using embedded PostgreSQL (no external database needed)"
+  info "Data will be stored in ~/.pgmemory/data/ on port 7434"
 fi
 
 # ── Embedding model ─────────────────────────────────────────────────
@@ -146,7 +118,7 @@ mkdir -p "$MODEL_DIR"
 if [[ -f "$MODEL_PATH" ]]; then
   ok "Model already downloaded"
 else
-  info "Downloading voyage-4-nano (Q8_0, ~70MB)..."
+  info "Downloading voyage-4-nano (Q8_0, ~354MB)..."
   curl -L --progress-bar -o "$MODEL_PATH" "$MODEL_URL"
   ok "Model downloaded"
 fi
@@ -159,26 +131,31 @@ mkdir -p "$MEMORYD_DIR"
 
 if [[ -f "$CONFIG_PATH" ]]; then
   ok "Config exists at $CONFIG_PATH"
-  # Update the URI if it changed.
-  if grep -q 'mongodb_atlas_uri:' "$CONFIG_PATH"; then
-    info "Updating mongodb_atlas_uri in existing config"
-    if [[ "$(uname)" == "Darwin" ]]; then
-      sed -i '' "s|mongodb_atlas_uri:.*|mongodb_atlas_uri: \"$MONGO_URI\"|" "$CONFIG_PATH"
-    else
-      sed -i "s|mongodb_atlas_uri:.*|mongodb_atlas_uri: \"$MONGO_URI\"|" "$CONFIG_PATH"
-    fi
-  fi
 else
-  cat > "$CONFIG_PATH" << EOF
+  if [[ -n "$POSTGRES_URI" ]]; then
+    cat > "$CONFIG_PATH" << EOF
 port: 7432
-mongodb_atlas_uri: "$MONGO_URI"
-mongodb_database: memoryd
-model_path: ~/.memoryd/models/voyage-4-nano.gguf
+mode: proxy
+postgres_url: "$POSTGRES_URI"
+model_path: ~/.pgmemory/models/voyage-4-nano.gguf
 embedding_dim: 1024
 retrieval_top_k: 5
 retrieval_max_tokens: 2048
 upstream_anthropic_url: https://api.anthropic.com
+llm_synthesis: false
 EOF
+  else
+    cat > "$CONFIG_PATH" << EOF
+port: 7432
+mode: proxy
+model_path: ~/.pgmemory/models/voyage-4-nano.gguf
+embedding_dim: 1024
+retrieval_top_k: 5
+retrieval_max_tokens: 2048
+upstream_anthropic_url: https://api.anthropic.com
+llm_synthesis: false
+EOF
+  fi
   ok "Config written to $CONFIG_PATH"
 fi
 
@@ -187,10 +164,10 @@ fi
 step "Build"
 
 cd "$SCRIPT_DIR"
-info "Building memoryd + tray app..."
+info "Building pgmemory + tray app..."
 make app 2>&1
-MEMORYD_BIN="$SCRIPT_DIR/bin/memoryd"
-ok "bin/memoryd and Memoryd.app built"
+MEMORYD_BIN="$SCRIPT_DIR/bin/pgmemory"
+ok "bin/pgmemory and Pgmemory.app built"
 
 # ── Claude Code MCP config ─────────────────────────────────────────
 
@@ -199,34 +176,36 @@ step "Claude Code MCP"
 MCP_CONFIG="$HOME/.mcp.json"
 
 if [[ -f "$MCP_CONFIG" ]]; then
-  if grep -q '"memoryd"' "$MCP_CONFIG" 2>/dev/null; then
-    ok "memoryd already in $MCP_CONFIG"
+  if grep -q '"pgmemory"' "$MCP_CONFIG" 2>/dev/null; then
+    ok "pgmemory already in $MCP_CONFIG"
   else
-    info "Adding memoryd to existing $MCP_CONFIG"
+    info "Adding pgmemory to existing $MCP_CONFIG"
     python3 -c "
 import json
 with open('$MCP_CONFIG') as f:
     cfg = json.load(f)
-cfg.setdefault('mcpServers', {})['memoryd'] = {
+servers = cfg.setdefault('mcpServers', {})
+servers.pop('memoryd', None)  # remove legacy entry
+servers['pgmemory'] = {
     'command': '$MEMORYD_BIN',
     'args': ['mcp']
 }
 with open('$MCP_CONFIG', 'w') as f:
     json.dump(cfg, f, indent=2)
-" 2>/dev/null && ok "Added memoryd to $MCP_CONFIG" || fail "Could not update $MCP_CONFIG — add manually"
+" 2>/dev/null && ok "Added pgmemory to $MCP_CONFIG" || fail "Could not update $MCP_CONFIG — add manually"
   fi
 else
   cat > "$MCP_CONFIG" << EOF
 {
   "mcpServers": {
-    "memoryd": {
+    "pgmemory": {
       "command": "$MEMORYD_BIN",
       "args": ["mcp"]
     }
   }
 }
 EOF
-  ok "Created $MCP_CONFIG with memoryd MCP server"
+  ok "Created $MCP_CONFIG with pgmemory MCP server"
 fi
 
 # ── Claude Desktop MCP config ──────────────────────────────────────
@@ -236,28 +215,30 @@ CLAUDE_CONFIG="$CLAUDE_CONFIG_DIR/claude_desktop_config.json"
 
 if [[ "$(uname)" == "Darwin" && -d "$CLAUDE_CONFIG_DIR" ]]; then
   if [[ -f "$CLAUDE_CONFIG" ]]; then
-    if grep -q '"memoryd"' "$CLAUDE_CONFIG" 2>/dev/null; then
-      ok "memoryd already in Claude Desktop config"
+    if grep -q '"pgmemory"' "$CLAUDE_CONFIG" 2>/dev/null; then
+      ok "pgmemory already in Claude Desktop config"
     else
-      info "Adding memoryd to Claude Desktop config"
+      info "Adding pgmemory to Claude Desktop config"
       python3 -c "
 import json
 with open('$CLAUDE_CONFIG') as f:
     cfg = json.load(f)
-cfg.setdefault('mcpServers', {})['memoryd'] = {
+servers = cfg.setdefault('mcpServers', {})
+servers.pop('memoryd', None)  # remove legacy entry
+servers['pgmemory'] = {
     'command': '$MEMORYD_BIN',
     'args': ['mcp']
 }
 with open('$CLAUDE_CONFIG', 'w') as f:
     json.dump(cfg, f, indent=2)
-" 2>/dev/null && ok "Added memoryd to Claude Desktop config" || info "Could not update Claude Desktop config — add manually"
+" 2>/dev/null && ok "Added pgmemory to Claude Desktop config" || info "Could not update Claude Desktop config — add manually"
     fi
   fi
 fi
 
 # ── Start everything ───────────────────────────────────────────────
 
-step "Starting memoryd"
+step "Starting pgmemory"
 
 # Stop any existing daemon.
 if curl -sf "http://127.0.0.1:7432/health" >/dev/null 2>&1; then
@@ -266,11 +247,11 @@ if curl -sf "http://127.0.0.1:7432/health" >/dev/null 2>&1; then
   sleep 1
 fi
 
-if [[ "$(uname)" == "Darwin" && -d "$SCRIPT_DIR/bin/Memoryd.app" ]]; then
-  pkill -f "Memoryd.app" 2>/dev/null || true
+if [[ "$(uname)" == "Darwin" && -d "$SCRIPT_DIR/bin/Pgmemory.app" ]]; then
+  pkill -f "Pgmemory.app" 2>/dev/null || true
   sleep 0.5
-  open "$SCRIPT_DIR/bin/Memoryd.app"
-  ok "Memoryd.app launched (menu bar + daemon)"
+  open "$SCRIPT_DIR/bin/Pgmemory.app"
+  ok "Pgmemory.app launched (menu bar + daemon)"
 else
   nohup "$MEMORYD_BIN" start > "$MEMORYD_DIR/daemon.log" 2>&1 &
   ok "Daemon started in background (PID $!)"
@@ -296,14 +277,14 @@ fi
 step "Ready!"
 
 echo ""
-echo "  memoryd is running and ready to use."
+echo "  pgmemory is running and ready to use."
 echo ""
 echo "  Dashboard:     http://127.0.0.1:7432"
 echo "  Proxy mode:    export ANTHROPIC_BASE_URL=http://127.0.0.1:7432"
 echo "  MCP mode:      Already configured in ~/.mcp.json"
 echo ""
 if [[ "$(uname)" == "Darwin" ]]; then
-echo "  The Memoryd menu bar app is running — look for M● in your menu bar."
+echo "  The Pgmemory menu bar app is running — look for M● in your menu bar."
 echo "  Use it to start/stop the daemon, switch modes, and manage sources."
 echo ""
 fi

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/credential"
+	"github.com/jeff-vincent/pgmemory/internal/credential"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,7 +55,7 @@ type PipelineConfig struct {
 type Config struct {
 	Port                 int            `yaml:"port"`
 	Mode                 string         `yaml:"mode"`
-	APIToken             string         `yaml:"-"` // loaded from ~/.memoryd/token at startup, not stored in YAML
+	APIToken             string         `yaml:"-"` // loaded from ~/.pgmemory/token at startup, not stored in YAML
 	PostgresURL          string         `yaml:"postgres_url,omitempty"`
 	ModelPath            string         `yaml:"model_path"`
 	EmbeddingDim         int            `yaml:"embedding_dim"`
@@ -89,7 +89,7 @@ type StewardConfig struct {
 var Default = Config{
 	Port:                 7432,
 	Mode:                 ModeProxy,
-	ModelPath:            "~/.memoryd/models/voyage-4-nano.gguf",
+	ModelPath:            "~/.pgmemory/models/voyage-4-nano.gguf",
 	EmbeddingDim:         1024,
 	RetrievalTopK:        5,
 	RetrievalMaxTokens:   2048,
@@ -115,10 +115,10 @@ var Default = Config{
 	},
 }
 
-// Dir returns the memoryd config directory path.
+// Dir returns the pgmemory config directory path.
 func Dir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".memoryd")
+	return filepath.Join(home, ".pgmemory")
 }
 
 // Path returns the config file path.
@@ -347,6 +347,33 @@ func GetAnthropicAPIKey() string {
 	return os.Getenv("ANTHROPIC_API_KEY")
 }
 
+// SaveAnthropicAPIKey stores the API key in the keychain and enables
+// llm_synthesis in the config file so the daemon picks it up on restart.
+func SaveAnthropicAPIKey(key string) error {
+	if err := credential.Set("anthropic_api_key", key); err != nil {
+		return err
+	}
+	cfg := Default
+	data, err := os.ReadFile(Path())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading config: %w", err)
+	}
+	if err == nil {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("parsing config: %w", err)
+		}
+	}
+	cfg.LLMSynthesis = true
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	if err := EnsureDir(); err != nil {
+		return err
+	}
+	return os.WriteFile(Path(), out, 0600)
+}
+
 // SavePostgresURL stores the Postgres connection URL in the keychain and
 // updates the config file to use a keychain sentinel.
 func SavePostgresURL(url string) error {
@@ -380,7 +407,7 @@ func (c *Config) UsePostgres() bool {
 	return c.PostgresURL != ""
 }
 
-// DeleteCredentials removes all memoryd credentials from the OS keychain.
+// DeleteCredentials removes all pgmemory credentials from the OS keychain.
 func DeleteCredentials() {
 	_ = credential.Delete("anthropic_api_key")
 	_ = credential.Delete("postgres_url")

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/memory-daemon/memoryd/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
 )
 
 // scenarioEmptyAndWhitespace verifies that empty strings and whitespace-only
@@ -65,11 +65,11 @@ func scenarioUnicodeContent(ctx context.Context) error {
 		},
 		{
 			"Emoji in technical content",
-			"The memoryd pipeline ✅ stores technical decisions 🧠 and retrieves them as context 🔍 for future AI sessions. No secrets 🔐 are stored — the redactor strips them before embedding 🚫.",
+			"The pgmemory pipeline ✅ stores technical decisions 🧠 and retrieves them as context 🔍 for future AI sessions. No secrets 🔐 are stored — the redactor strips them before embedding 🚫.",
 		},
 		{
 			"Mixed scripts",
-			"Config port: 7432 (default) / पोर्ट / منفذ / ポート — all refer to the memoryd HTTP server listening address for API and proxy traffic.",
+			"Config port: 7432 (default) / पोर्ट / منفذ / ポート — all refer to the pgmemory HTTP server listening address for API and proxy traffic.",
 		},
 		{
 			"Combining characters",
@@ -158,7 +158,7 @@ func scenarioRepeatedIdenticalWrites(ctx context.Context) error {
 	emb := newHashEmbedder(128)
 	wp := pipeline.NewWritePipeline(emb, st)
 
-	content := "The memoryd configuration file lives at ~/.memoryd/config.yaml and is created with default values on first run. The port field defaults to 7432, mode defaults to proxy, and mongodb_database defaults to memoryd."
+	content := "The pgmemory configuration file lives at ~/.pgmemory/config.yaml and is created with default values on first run. The port field defaults to 7432, mode defaults to proxy, and mongodb_database defaults to pgmemory."
 
 	const writes = 20
 	for i := 0; i < writes; i++ {

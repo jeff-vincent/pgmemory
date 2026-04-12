@@ -26,15 +26,17 @@ const skipSentinel = "SKIP"
 // in the dashboard so operators can see exactly what the LLM receives.
 
 // DefaultMergePrompt is the system prompt used by Synthesize() to merge
-// related text chunks into a single coherent memory entry.
-const DefaultMergePrompt = `Consolidate these related fragments into a single memory entry. Remove duplication. Keep every distinct technical fact.
+// related text chunks into atomic facts. Uses the same FACT: format as
+// SynthesizeQA so parseFacts() handles both paths identically.
+const DefaultMergePrompt = `Extract every distinct technical fact from these related fragments. Remove duplication.
 
 Rules:
-- State each fact directly: what it is, where it lives, why it matters.
-- Use concrete identifiers: file paths, function names, config keys, error messages, version numbers.
-- No narration, no preamble, no "this means that" interpretation.
+- One fact per line, prefixed with "FACT: "
+- Lead with the concrete anchor: file path, function name, config key, error message.
+- State the fact and the reason. No narration, no preamble, no interpretation.
 - No forward-looking statements ("you should", "next time", "remember to").
-- 2-8 sentences. Each sentence = one standalone fact.
+- 1-2 sentences per fact. Concrete identifiers only.
+- If there are no distinct technical facts, respond with exactly: SKIP
 
 Fragments:
 
@@ -68,16 +70,21 @@ Good: "FACT: OAuth2 PKCE flow in auth/handler.go requires code_verifier stored i
 Output FACT: lines or SKIP. Nothing else.`
 
 // DefaultConversationPrompt is the system prompt used by SynthesizeConversation()
-// to distill a multi-turn coding session into a structured memory entry.
+// to distill a multi-turn coding session into atomic facts. Uses the same FACT:
+// format as DefaultQAPrompt so parseFacts() handles all synthesis paths identically.
 const DefaultConversationPrompt = `Extract the reusable technical facts from this coding session. Ignore the task narrative — what was done is in git. Extract what is not in git: root causes, gotchas, constraints, rationale, non-obvious wiring.
 
-Rules:
-- One fact per sentence. Lead with the concrete anchor (file, function, config key, error).
-- State the fact and the reason. No narration, no advice, no "we discovered", no "this means".
+GATE: If there are no non-obvious facts, respond with exactly: SKIP
+
+FORMAT:
+- Each fact on its own line, prefixed with "FACT: "
+- Lead with the concrete anchor: file path, function name, config key, error message.
+- State the fact and the reason. No narration, no "we discovered", no "this means".
 - No forward-looking language ("next time", "you should", "will need to").
 - No task summaries ("implemented X", "fixed Y", "added Z").
-- No restatements of requirements.
-- 3-10 sentences. Under 300 words. Each sentence independently useful as a search hit.
+- 1-2 sentences per fact. Concrete identifiers only.
+
+Output FACT: lines or SKIP. Nothing else.
 
 Conversation:
 
@@ -302,18 +309,28 @@ func (ab *anthropicBackend) complete(ctx context.Context, model string, maxToken
 	return strings.TrimSpace(strings.Join(parts, "\n")), nil
 }
 
-// Synthesize merges a set of related text chunks into a single coherent entry.
-// If len(chunks) < minChunks or the synthesizer is unavailable, it falls back
-// to joining with "\n\n".
-func (s *Synthesizer) Synthesize(ctx context.Context, chunks []string) (string, error) {
+// Synthesize extracts atomic facts from a set of related text chunks.
+// Returns each fact as a separate string via parseFacts().
+// If len(chunks) < minChunks or the synthesizer is unavailable, returns
+// the chunks unchanged so the caller can store them individually.
+func (s *Synthesizer) Synthesize(ctx context.Context, chunks []string) ([]string, error) {
 	if !s.Available() || len(chunks) < s.minChunks {
-		return strings.Join(chunks, "\n\n"), nil
+		return chunks, nil
 	}
 
 	combined := strings.Join(chunks, "\n\n---\n\n")
 	prompt := s.mergePrompt() + combined
 
-	return s.complete(ctx, prompt)
+	raw, err := s.complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	facts := parseFacts(raw)
+	if len(facts) == 0 {
+		// Model returned SKIP or nothing useful — fall back to storing chunks as-is.
+		return chunks, nil
+	}
+	return facts, nil
 }
 
 // SynthesizeQA is the mandatory quality gate for ALL proxy-captured content.
@@ -375,16 +392,13 @@ func parseFacts(raw string) []string {
 	return facts
 }
 
-// SynthesizeConversation distills a multi-turn conversation into a structured
-// memory entry capturing the problem, approach, and resolution.
-func (s *Synthesizer) SynthesizeConversation(ctx context.Context, turns []ConversationTurn) (string, error) {
+// SynthesizeConversation distills a multi-turn coding session into atomic facts.
+// Returns each fact as a separate string. Returns (nil, nil) when the synthesizer
+// is unavailable or the conversation has fewer than 2 turns — callers should skip
+// storage in that case since the per-exchange path already handles individual turns.
+func (s *Synthesizer) SynthesizeConversation(ctx context.Context, turns []ConversationTurn) ([]string, error) {
 	if !s.Available() || len(turns) < 2 {
-		// Fall back: concatenate turns with role labels.
-		var parts []string
-		for _, t := range turns {
-			parts = append(parts, fmt.Sprintf("%s: %s", t.Role, t.Content))
-		}
-		return strings.Join(parts, "\n\n"), nil
+		return nil, nil
 	}
 
 	var convBuf strings.Builder
@@ -394,5 +408,11 @@ func (s *Synthesizer) SynthesizeConversation(ctx context.Context, turns []Conver
 
 	prompt := strings.Replace(s.conversationPrompt(), "[turns]", convBuf.String(), 1)
 
-	return s.complete(ctx, prompt)
+	raw, err := s.complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	facts := parseFacts(raw)
+	// nil facts (SKIP or empty) is a valid signal — no storage needed.
+	return facts, nil
 }

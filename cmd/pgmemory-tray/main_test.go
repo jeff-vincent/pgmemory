@@ -33,7 +33,7 @@ func healthServer(payload map[string]any) *httptest.Server {
 func TestGetHealth_Success(t *testing.T) {
 	srv := healthServer(map[string]any{
 		"status":    "ok",
-		"mongodb":   "connected",
+		"database":  "connected",
 		"synthesis": true,
 	})
 	defer srv.Close()
@@ -46,8 +46,8 @@ func TestGetHealth_Success(t *testing.T) {
 	if result["status"] != "ok" {
 		t.Errorf("status: got %v, want ok", result["status"])
 	}
-	if result["mongodb"] != "connected" {
-		t.Errorf("mongodb: got %v, want connected", result["mongodb"])
+	if result["database"] != "connected" {
+		t.Errorf("database: got %v, want connected", result["database"])
 	}
 	if synth, _ := result["synthesis"].(bool); !synth {
 		t.Errorf("synthesis: got %v, want true", result["synthesis"])
@@ -110,8 +110,8 @@ func TestGetHealth_FieldVariations(t *testing.T) {
 	}{
 		{"minimal ok", map[string]any{"status": "ok"}, false},
 		{"synthesis false", map[string]any{"status": "ok", "synthesis": false}, false},
-		{"mongodb connecting", map[string]any{"status": "ok", "mongodb": "connecting"}, false},
-		{"missing status", map[string]any{"mongodb": "connected"}, true},
+		{"database connecting", map[string]any{"status": "ok", "database": "connecting"}, false},
+		{"missing status", map[string]any{"database": "connected"}, true},
 		{"empty response", map[string]any{}, true},
 	}
 	for _, tt := range tests {
@@ -157,18 +157,18 @@ func TestGetHealth_SynthesisFieldTypes(t *testing.T) {
 	}
 }
 
-func TestGetHealth_MongoDBStates(t *testing.T) {
+func TestGetHealth_DatabaseStates(t *testing.T) {
 	for _, state := range []string{"connected", "connecting", "disconnected"} {
 		t.Run(state, func(t *testing.T) {
-			srv := healthServer(map[string]any{"status": "ok", "mongodb": state})
+			srv := healthServer(map[string]any{"status": "ok", "database": state})
 			defer srv.Close()
 			result := getHealth(portFromURL(t, srv.URL))
 			if result == nil {
 				t.Fatal("expected non-nil")
 			}
-			got, _ := result["mongodb"].(string)
+			got, _ := result["database"].(string)
 			if got != state {
-				t.Errorf("mongodb: got %q, want %q", got, state)
+				t.Errorf("database: got %q, want %q", got, state)
 			}
 		})
 	}
@@ -347,10 +347,10 @@ func TestExtractCrashReason_SingleLine(t *testing.T) {
 	}
 }
 
-func TestCleanMCPConfig_RemovesMemoryd(t *testing.T) {
+func TestCleanMCPConfig_RemovesPgmemory(t *testing.T) {
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
-			"memoryd":      map[string]any{"command": "memoryd", "args": []string{"mcp"}},
+			"pgmemory":     map[string]any{"command": "pgmemory", "args": []string{"mcp"}},
 			"other-server": map[string]any{"command": "other"},
 		},
 	}
@@ -362,15 +362,15 @@ func TestCleanMCPConfig_RemovesMemoryd(t *testing.T) {
 
 	result := readMCPConfig(t, tmp)
 	servers := result["mcpServers"].(map[string]any)
-	if _, ok := servers["memoryd"]; ok {
-		t.Error("memoryd should be removed")
+	if _, ok := servers["pgmemory"]; ok {
+		t.Error("pgmemory should be removed")
 	}
 	if _, ok := servers["other-server"]; !ok {
 		t.Error("other-server should remain")
 	}
 }
 
-func TestCleanMCPConfig_NoMemoryd(t *testing.T) {
+func TestCleanMCPConfig_NoPgmemory(t *testing.T) {
 	cfg := map[string]any{
 		"mcpServers": map[string]any{"foo": map[string]any{"command": "foo"}},
 	}
@@ -413,7 +413,7 @@ func TestCleanMCPConfig_ServersNotObject(t *testing.T) {
 
 func TestCleanMCPConfig_PreservesOtherKeys(t *testing.T) {
 	cfg := map[string]any{
-		"mcpServers":     map[string]any{"memoryd": map[string]any{"command": "m"}},
+		"mcpServers":     map[string]any{"pgmemory": map[string]any{"command": "m"}},
 		"globalShortcut": "Ctrl+M",
 	}
 	tmp := writeMCPConfig(t, cfg)
@@ -427,7 +427,7 @@ func TestCleanMCPConfig_PreservesOtherKeys(t *testing.T) {
 
 func TestCleanMCPConfig_FilePermissions(t *testing.T) {
 	cfg := map[string]any{
-		"mcpServers": map[string]any{"memoryd": map[string]any{"command": "m"}},
+		"mcpServers": map[string]any{"pgmemory": map[string]any{"command": "m"}},
 	}
 	tmp := writeMCPConfig(t, cfg)
 	cleanMCPConfig(tmp)
@@ -444,23 +444,23 @@ func TestCleanMCPConfig_FilePermissions(t *testing.T) {
 func TestCleanMCPConfig_OnlyExactKey(t *testing.T) {
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
-			"memoryd":        map[string]any{"command": "m"},
-			"memoryd-custom": map[string]any{"command": "c"},
-			"not-memoryd":    map[string]any{"command": "n"},
+			"pgmemory":        map[string]any{"command": "m"},
+			"pgmemory-custom": map[string]any{"command": "c"},
+			"not-pgmemory":    map[string]any{"command": "n"},
 		},
 	}
 	tmp := writeMCPConfig(t, cfg)
 	cleanMCPConfig(tmp)
 
 	servers := readMCPConfig(t, tmp)["mcpServers"].(map[string]any)
-	if _, ok := servers["memoryd"]; ok {
-		t.Error("memoryd should be gone")
+	if _, ok := servers["pgmemory"]; ok {
+		t.Error("pgmemory should be gone")
 	}
-	if _, ok := servers["memoryd-custom"]; !ok {
-		t.Error("memoryd-custom should remain")
+	if _, ok := servers["pgmemory-custom"]; !ok {
+		t.Error("pgmemory-custom should remain")
 	}
-	if _, ok := servers["not-memoryd"]; !ok {
-		t.Error("not-memoryd should remain")
+	if _, ok := servers["not-pgmemory"]; !ok {
+		t.Error("not-pgmemory should remain")
 	}
 }
 

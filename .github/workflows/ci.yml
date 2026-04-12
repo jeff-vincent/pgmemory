@@ -78,9 +78,9 @@ jobs:
           go-version: "1.26"
 
       - name: Build binary
-        run: go build -ldflags "-s -w -X main.version=ci" -o bin/memoryd ./cmd/memoryd
+        run: go build -ldflags "-s -w -X main.version=ci" -o bin/pgmemory ./cmd/pgmemory
 
       - name: Smoke test
         run: |
-          ./bin/memoryd version
-          ./bin/memoryd --help
+          ./bin/pgmemory version
+          ./bin/pgmemory --help

@@ -1,6 +1,6 @@
 // benchmark.go
 //
-// Comprehensive HuggingFace dataset benchmark for memoryd.
+// Comprehensive HuggingFace dataset benchmark for pgmemory.
 //
 // Feeds N rows from nlile/misc-merged-claude-code-traces-v1 through the live
 // /api/ingest endpoint and records detailed per-row results. Produces:
@@ -65,7 +65,7 @@ var benchSearchQueries = []string{
 	"MongoDB vector search configuration and indexing",
 	"security redaction and sensitive data handling",
 	"write pipeline performance and latency bottlenecks",
-	"how to configure memoryd for a team",
+	"how to configure pgmemory for a team",
 	"error handling best practices in Go",
 	"API authentication and token management",
 	"embedding model and vector dimensions",
@@ -86,7 +86,7 @@ type searchProbe struct {
 func runBenchmark(w io.Writer, baseURL string, sampleSize, concurrency int, noCleanup bool, jsonlPath, dataDir string) {
 	token := loadToken()
 
-	fmt.Fprintf(os.Stderr, "=== memoryd comprehensive benchmark ===\n")
+	fmt.Fprintf(os.Stderr, "=== pgmemory comprehensive benchmark ===\n")
 	fmt.Fprintf(os.Stderr, "dataset:     %s\n", hfDataset)
 	fmt.Fprintf(os.Stderr, "sample:      %d rows\n", sampleSize)
 	fmt.Fprintf(os.Stderr, "concurrency: %d\n", concurrency)
@@ -102,7 +102,7 @@ func runBenchmark(w io.Writer, baseURL string, sampleSize, concurrency int, noCl
 	// ---- 1. Health check ------------------------------------------------
 	var health struct{ Status string }
 	if err := authGet(baseURL, "/health", &health, ""); err != nil || health.Status != "ok" {
-		fmt.Fprintf(os.Stderr, "error: memoryd not reachable at %s\n", baseURL)
+		fmt.Fprintf(os.Stderr, "error: pgmemory not reachable at %s\n", baseURL)
 		os.Exit(1)
 	}
 
@@ -337,7 +337,7 @@ func writeBenchReport(w io.Writer, results []benchRow, classes []respClass, rows
 	total := len(results)
 	now := time.Now().Format("2006-01-02 15:04:05")
 
-	fmt.Fprintf(w, "# memoryd Comprehensive Benchmark — %s\n\n", now)
+	fmt.Fprintf(w, "# pgmemory Comprehensive Benchmark — %s\n\n", now)
 	fmt.Fprintf(w, "**Dataset:** `%s`  \n", hfDataset)
 	fmt.Fprintf(w, "**Rows processed:** %d  \n", total)
 	fmt.Fprintf(w, "**Wall time:** %s  \n", wallTime.Round(time.Second))

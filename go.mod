@@ -1,4 +1,4 @@
-module github.com/memory-daemon/memoryd
+module github.com/jeff-vincent/pgmemory
 
 go 1.26
 

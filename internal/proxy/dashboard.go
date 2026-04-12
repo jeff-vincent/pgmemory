@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 )
 
 //go:embed dashboard.html
@@ -85,7 +85,7 @@ func (d *dashboardHandler) handleDashboard(w http.ResponseWriter, r *http.Reques
 		threshold = d.quality.Threshold()
 	}
 
-	// Recent retrievals (from QualityStore on the mongo store).
+	// Recent retrievals (from QualityStore).
 	if qs, ok := d.store.(store.QualityStore); ok {
 		recentRetrievals, _ = qs.RecentRetrievals(ctx, 50)
 		topMemories, _ = qs.TopMemories(ctx, 10)

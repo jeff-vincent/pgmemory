@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/ingest"
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/ingest"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

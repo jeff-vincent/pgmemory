@@ -1,17 +1,17 @@
 #!/bin/bash
-# Build a Memoryd.app bundle from pre-built binaries in a target directory.
+# Build a Pgmemory.app bundle from pre-built binaries in a target directory.
 # Usage: ./scripts/build-release-app.sh dist/darwin-arm64
 set -euo pipefail
 
 TARGET_DIR="${1:?Usage: $0 <target-dir>}"
-APP="$TARGET_DIR/Memoryd.app"
+APP="$TARGET_DIR/Pgmemory.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-cp "$TARGET_DIR/memoryd-tray" "$APP/Contents/MacOS/memoryd-tray"
-cp "$TARGET_DIR/memoryd"      "$APP/Contents/MacOS/memoryd"
+cp "$TARGET_DIR/pgmemory-tray" "$APP/Contents/MacOS/pgmemory-tray"
+cp "$TARGET_DIR/pgmemory"      "$APP/Contents/MacOS/pgmemory"
 
 cat > "$APP/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -19,17 +19,17 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Memoryd</string>
+    <string>Pgmemory</string>
     <key>CFBundleDisplayName</key>
-    <string>Memoryd</string>
+    <string>Pgmemory</string>
     <key>CFBundleIdentifier</key>
-    <string>io.memorydaemon.memoryd</string>
+    <string>io.pgmemory.pgmemory</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleExecutable</key>
-    <string>memoryd-tray</string>
+    <string>pgmemory-tray</string>
     <key>LSUIElement</key>
     <true/>
     <key>CFBundlePackageType</key>

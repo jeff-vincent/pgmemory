@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 

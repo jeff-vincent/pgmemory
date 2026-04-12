@@ -1,24 +1,30 @@
 #!/bin/bash
-# Build a macOS .app bundle for memoryd-tray
+# Build a macOS .app bundle for pgmemory-tray
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP="$ROOT/bin/Memoryd.app"
+APP="$ROOT/bin/Pgmemory.app"
 
-echo "Building memoryd-tray..."
+echo "Building pgmemory-tray..."
 cd "$ROOT"
-go build -o bin/memoryd-tray ./cmd/memoryd-tray
-go build -ldflags "-X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/memoryd ./cmd/memoryd
 
-echo "Creating Memoryd.app bundle..."
+# Only build if binaries don't already exist (make app builds them first).
+if [ ! -f bin/pgmemory-tray ]; then
+    go build -o bin/pgmemory-tray ./cmd/pgmemory-tray
+fi
+if [ ! -f bin/pgmemory ]; then
+    go build -ldflags "-X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/pgmemory ./cmd/pgmemory
+fi
+
+echo "Creating Pgmemory.app bundle..."
 rm -rf "$APP"
 
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-cp bin/memoryd-tray "$APP/Contents/MacOS/memoryd-tray"
-cp bin/memoryd "$APP/Contents/MacOS/memoryd"
+cp bin/pgmemory-tray "$APP/Contents/MacOS/pgmemory-tray"
+cp bin/pgmemory "$APP/Contents/MacOS/pgmemory"
 
 cat > "$APP/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -26,17 +32,17 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Memoryd</string>
+    <string>Pgmemory</string>
     <key>CFBundleDisplayName</key>
-    <string>Memoryd</string>
+    <string>Pgmemory</string>
     <key>CFBundleIdentifier</key>
-    <string>io.memorydaemon.memoryd</string>
+    <string>io.pgmemory.pgmemory</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleExecutable</key>
-    <string>memoryd-tray</string>
+    <string>pgmemory-tray</string>
     <key>LSUIElement</key>
     <true/>
     <key>CFBundlePackageType</key>

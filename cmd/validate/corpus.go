@@ -184,12 +184,12 @@ func duplicateEntries() []corpusEntry {
 		},
 		// Cluster C: port config
 		{
-			Content:  "memoryd listens on port 7432 by default. The llama-server embedding subprocess runs on port 7433. Both bind to 127.0.0.1 only.",
+			Content:  "pgmemory listens on port 7432 by default. The llama-server embedding subprocess runs on port 7433. Both bind to 127.0.0.1 only.",
 			Category: "duplicate",
 			Topic:    "ports",
 		},
 		{
-			Content:  "Default port is 7432 for the memoryd daemon, 7433 for the embedding server (llama-server). Both are localhost-only for security.",
+			Content:  "Default port is 7432 for the pgmemory daemon, 7433 for the embedding server (llama-server). Both are localhost-only for security.",
 			Category: "duplicate",
 			Topic:    "ports",
 		},
@@ -211,7 +211,7 @@ func securityPatternEntries() []corpusEntry {
 			Topic:    "redaction-design",
 		},
 		{
-			Content:  "TLS termination happens at the load balancer, not at the application. Internal service-to-service traffic uses mTLS with certificates rotated every 30 days by cert-manager. The memoryd proxy binds to 127.0.0.1 only — never 0.0.0.0 — to prevent unintentional network exposure.",
+			Content:  "TLS termination happens at the load balancer, not at the application. Internal service-to-service traffic uses mTLS with certificates rotated every 30 days by cert-manager. The pgmemory proxy binds to 127.0.0.1 only — never 0.0.0.0 — to prevent unintentional network exposure.",
 			Category: "high-value",
 			Topic:    "network-security",
 		},
@@ -243,7 +243,7 @@ func incidentRunbookEntries() []corpusEntry {
 			Topic:    "incident-embedding-down",
 		},
 		{
-			Content:  "Symptom: memoryd starts but /health returns 'connection refused'. Check in order: (1) is port 7432 already in use? (lsof -i :7432), (2) did MongoDB come up before memoryd tried to connect? (startup doesn't retry), (3) is the config file missing or malformed? (memoryd start --v for verbose logs).",
+			Content:  "Symptom: pgmemory starts but /health returns 'connection refused'. Check in order: (1) is port 7432 already in use? (lsof -i :7432), (2) did MongoDB come up before pgmemory tried to connect? (startup doesn't retry), (3) is the config file missing or malformed? (pgmemory start --v for verbose logs).",
 			Category: "high-value",
 			Topic:    "incident-startup-fail",
 		},
@@ -253,7 +253,7 @@ func incidentRunbookEntries() []corpusEntry {
 			Topic:    "incident-source-dupe",
 		},
 		{
-			Content:  "Symptom: steward sweep reports pruned=0 even with hundreds of old zero-hit memories. Cause: PruneGracePeriod may be set too high, or PruneThreshold is too low. Check steward config in ~/.memoryd/config.yaml under the 'steward' key. Default grace_period_hours=24 and prune_threshold=0.1. Also check that decay_half_days is set to a reasonable value (90 days default).",
+			Content:  "Symptom: steward sweep reports pruned=0 even with hundreds of old zero-hit memories. Cause: PruneGracePeriod may be set too high, or PruneThreshold is too low. Check steward config in ~/.pgmemory/config.yaml under the 'steward' key. Default grace_period_hours=24 and prune_threshold=0.1. Also check that decay_half_days is set to a reasonable value (90 days default).",
 			Category: "high-value",
 			Topic:    "incident-steward-no-prune",
 		},
@@ -292,7 +292,7 @@ func apiContractEntries() []corpusEntry {
 func mongodbOpsEntries() []corpusEntry {
 	return []corpusEntry{
 		{
-			Content:  "To create the vector index for Atlas Local, run: docker cp scripts/create_index.js memoryd-mongo:/tmp/create_index.js && docker exec memoryd-mongo mongosh memoryd --quiet --file /tmp/create_index.js. The index specifies numDimensions: 1024 and cosine similarity metric.",
+			Content:  "To create the vector index for Atlas Local, run: docker cp scripts/create_index.js pgmemory-mongo:/tmp/create_index.js && docker exec pgmemory-mongo mongosh pgmemory --quiet --file /tmp/create_index.js. The index specifies numDimensions: 1024 and cosine similarity metric.",
 			Category: "mongodb-ops",
 			Topic:    "index-setup",
 		},
@@ -317,7 +317,7 @@ func mongodbOpsEntries() []corpusEntry {
 			Topic:    "schema",
 		},
 		{
-			Content:  "Backup strategy: mongodump --archive=/path/backup.gz --gzip --db memoryd. For Atlas Local in Docker: docker exec memoryd-mongo mongodump --archive --gzip --db memoryd > backup.gz. Restore with mongorestore --archive=backup.gz --gzip.",
+			Content:  "Backup strategy: mongodump --archive=/path/backup.gz --gzip --db pgmemory. For Atlas Local in Docker: docker exec pgmemory-mongo mongodump --archive --gzip --db pgmemory > backup.gz. Restore with mongorestore --archive=backup.gz --gzip.",
 			Category: "mongodb-ops",
 			Topic:    "backup",
 		},

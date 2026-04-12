@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 )
 
 // DefaultThreshold is the minimum number of retrieval events before

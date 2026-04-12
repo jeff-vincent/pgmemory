@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/config"
-	"github.com/memory-daemon/memoryd/internal/credential"
-	"github.com/memory-daemon/memoryd/internal/embedding"
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/quality"
-	"github.com/memory-daemon/memoryd/internal/redact"
-	"github.com/memory-daemon/memoryd/internal/rejection"
-	"github.com/memory-daemon/memoryd/internal/store"
-	"github.com/memory-daemon/memoryd/internal/synthesizer"
+	"github.com/jeff-vincent/pgmemory/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/credential"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/quality"
+	"github.com/jeff-vincent/pgmemory/internal/redact"
+	"github.com/jeff-vincent/pgmemory/internal/rejection"
+	"github.com/jeff-vincent/pgmemory/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/synthesizer"
 )
 
 type apiHandler struct {
@@ -32,6 +32,20 @@ type apiHandler struct {
 	cfg      *config.Config
 	rejLog   *rejection.Store
 	synth    *synthesizer.Synthesizer
+}
+
+// pipelineReady returns true if the read/write pipelines are wired.
+func (a *apiHandler) pipelineReady() bool {
+	return a.read != nil && a.write != nil
+}
+
+// requirePipeline writes a 503 and returns false if the pipeline isn't ready.
+func (a *apiHandler) requirePipeline(w http.ResponseWriter) bool {
+	if !a.pipelineReady() {
+		writeJSON(w, 503, map[string]string{"error": "pipeline not ready — waiting for embedding model"})
+		return false
+	}
+	return true
 }
 
 func registerAPI(mux *http.ServeMux, st store.Store, read *pipeline.ReadPipeline, write *pipeline.WritePipeline, emb embedding.Embedder, cfg *config.Config, rejLog *rejection.Store, synth *synthesizer.Synthesizer) {
@@ -55,6 +69,9 @@ func (a *apiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 		return
 	}
+	if !a.requirePipeline(w) {
+		return
+	}
 
 	var req struct {
 		Query    string `json:"query"`
@@ -71,7 +88,6 @@ func (a *apiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-
 
 	retrieved, memories, err := a.read.RetrieveWithScores(ctx, req.Query)
 	if err != nil {
@@ -90,6 +106,9 @@ func (a *apiHandler) handleStore(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !a.requirePipeline(w) {
 		return
 	}
 
@@ -126,6 +145,9 @@ func (a *apiHandler) handleIngest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !a.requirePipeline(w) {
 		return
 	}
 
@@ -261,6 +283,10 @@ func (a *apiHandler) handleMemoryByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"status": "ok"})
 
 	case http.MethodPut:
+		if a.embedder == nil {
+			writeJSON(w, 503, map[string]string{"error": "pipeline not ready — waiting for embedding model"})
+			return
+		}
 		var req struct {
 			Content string `json:"content"`
 		}
@@ -297,6 +323,11 @@ func (a *apiHandler) handleMemoryByID(w http.ResponseWriter, r *http.Request) {
 // saved to disk and take effect on next restart.
 func (a *apiHandler) handlePipelineConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	if a.write == nil {
+		writeJSON(w, 503, map[string]string{"error": "pipeline not ready"})
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -638,9 +669,9 @@ func (a *apiHandler) handleExport(w http.ResponseWriter, r *http.Request) {
 
 	// Build markdown.
 	var sb strings.Builder
-	title := "memoryd Knowledge Export"
+	title := "pgmemory Knowledge Export"
 	if source != "" {
-		title = "memoryd Export: " + source
+		title = "pgmemory Export: " + source
 	}
 	sb.WriteString("# " + title + "\n\n")
 	sb.WriteString(fmt.Sprintf("> %d memories across %d sources | exported %s\n\n",
@@ -668,7 +699,7 @@ func (a *apiHandler) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	w.Header().Set("Content-Disposition", "attachment; filename=\"memoryd-export.md\"")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"pgmemory-export.md\"")
 	w.WriteHeader(200)
 	w.Write([]byte(sb.String()))
 }
@@ -684,7 +715,7 @@ func exportFirstLine(s string) string {
 	return s
 }
 
-// handleLogs returns the last N lines of ~/.memoryd/daemon.log.
+// handleLogs returns the last N lines of ~/.pgmemory/daemon.log.
 // Query params:
 //   - lines: number of lines to return (default 500, max 5000)
 func handleLogs(w http.ResponseWriter, r *http.Request) {

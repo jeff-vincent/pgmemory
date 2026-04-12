@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const serviceName = "memoryd"
+const serviceName = "pgmemory"
 
 // Set stores a credential securely in the OS keychain.
 func Set(key, value string) error {
@@ -100,7 +100,7 @@ func linuxSet(key, value string) error {
 		return fmt.Errorf("secret-tool not found — install libsecret-tools for secure credential storage")
 	}
 	cmd := exec.Command("secret-tool", "store",
-		"--label", fmt.Sprintf("memoryd %s", key),
+		"--label", fmt.Sprintf("pgmemory %s", key),
 		"service", serviceName,
 		"key", key,
 	)

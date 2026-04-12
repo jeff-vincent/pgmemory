@@ -15,7 +15,7 @@ import (
 
 	"fyne.io/systray"
 
-	"github.com/memory-daemon/memoryd/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/config"
 )
 
 func main() {
@@ -37,15 +37,15 @@ var (
 
 func onReady() {
 	systray.SetTitle("M")
-	systray.SetTooltip("memoryd – memory layer for coding agents")
+	systray.SetTooltip("pgmemory – memory layer for coding agents")
 
 	mStatus := systray.AddMenuItem("Status: checking...", "Daemon status")
 	mStatus.Disable()
 
-	mMongo := systray.AddMenuItem("MongoDB: checking...", "MongoDB connection status")
-	mMongo.Disable()
+	mDB := systray.AddMenuItem("Database: checking...", "Postgres connection status")
+	mDB.Disable()
 
-	mConnectMongo := systray.AddMenuItem("Connect to MongoDB...", "Configure MongoDB connection (local Docker or Atlas)")
+	mConnectDB := systray.AddMenuItem("Configure Postgres...", "Set Postgres connection URL")
 	mSetKey := systray.AddMenuItem("Set Anthropic Key...", "Store your Anthropic API key in the OS keychain")
 
 	// Show checkmarks if credentials are already configured.
@@ -62,18 +62,18 @@ func onReady() {
 	systray.AddSeparator()
 
 	// --- Mode submenu ---
-	mMode := systray.AddMenuItem("Mode", "How memoryd integrates with your agent")
+	mMode := systray.AddMenuItem("Mode", "How pgmemory integrates with your agent")
 	mModeProxy := mMode.AddSubMenuItem("Proxy – auto read & write", "Proxy intercepts API calls, captures everything automatically")
 	mModeMCP := mMode.AddSubMenuItem("MCP – read & write", "Agent uses MCP tools to search and store explicitly")
 	mModeMCPRO := mMode.AddSubMenuItem("MCP – read only", "Agent can search memories but cannot store new ones")
 
 	systray.AddSeparator()
 
-	mUninstall := systray.AddMenuItem("Uninstall memoryd...", "Remove memoryd and all its data")
+	mUninstall := systray.AddMenuItem("Uninstall pgmemory...", "Remove pgmemory and all its data")
 
 	systray.AddSeparator()
 
-	mQuit := systray.AddMenuItem("Quit", "Quit memoryd tray")
+	mQuit := systray.AddMenuItem("Quit", "Quit pgmemory tray")
 
 	// Gate items behind MongoDB connection — disabled until connected.
 	mSetKey.Disable()
@@ -98,7 +98,7 @@ func onReady() {
 	// Poll daemon health every 3 seconds.
 	running := false
 	synthActive := false
-	mongoConnected := false
+	dbConnected := false
 	go func() {
 		for {
 			health := getHealth(port)
@@ -117,22 +117,22 @@ func onReady() {
 				}
 			}
 
-			// Track MongoDB connection status and gate menu items.
+			// Track database connection status and gate menu items.
 			if ok {
-				mongoStr, _ := health["mongodb"].(string)
-				newMongoConnected := mongoStr == "connected"
-				if newMongoConnected != mongoConnected {
-					mongoConnected = newMongoConnected
-					if mongoConnected {
-						mMongo.SetTitle("MongoDB: ✅ connected")
+				dbStr, _ := health["database"].(string)
+				newDBConnected := dbStr == "connected"
+				if newDBConnected != dbConnected {
+					dbConnected = newDBConnected
+					if dbConnected {
+						mDB.SetTitle("Database: ✅ connected")
 						mSetKey.Enable()
 						mToggle.Enable()
 						mDash.Enable()
 						mMode.Enable()
-					} else if mongoStr == "connecting" {
-						mMongo.SetTitle("MongoDB: 🔄 connecting...")
+					} else if dbStr == "connecting" {
+						mDB.SetTitle("Database: 🔄 connecting...")
 					} else {
-						mMongo.SetTitle("MongoDB: ❌ disconnected — start MongoDB to continue")
+						mDB.SetTitle("Database: ❌ disconnected")
 						mSetKey.Disable()
 						mDash.Disable()
 						mMode.Disable()
@@ -149,16 +149,16 @@ func onReady() {
 					}
 					mStatus.SetTitle(subtitle)
 					mToggle.SetTitle("Stop")
-					if mongoConnected {
+					if dbConnected {
 						systray.SetTitle("M●")
 					} else {
 						systray.SetTitle("M⚠")
 					}
 				} else {
 					synthActive = false
-					mongoConnected = false
+					dbConnected = false
 					mStatus.SetTitle("Status: ○ stopped")
-					mMongo.SetTitle("MongoDB: —")
+					mDB.SetTitle("Database: —")
 					mToggle.SetTitle("Start")
 					mToggle.Enable() // allow starting even when disconnected
 					mSetKey.Disable()
@@ -187,10 +187,10 @@ func onReady() {
 				setStopGrace()
 				stopDaemon()
 				running = false
-				mongoConnected = false
+				dbConnected = false
 				mToggle.SetTitle("Start")
 				mStatus.SetTitle("Status: ○ stopped")
-				mMongo.SetTitle("MongoDB: —")
+				mDB.SetTitle("Database: —")
 				mSetKey.Disable()
 				mDash.Disable()
 				mMode.Disable()
@@ -201,12 +201,12 @@ func onReady() {
 				running = true
 				mToggle.SetTitle("Stop")
 				mStatus.SetTitle("Status: ● running on port " + fmt.Sprintf("%d", port))
-				mMongo.SetTitle("MongoDB: 🔄 connecting...")
+				mDB.SetTitle("Database: 🔄 connecting...")
 				systray.SetTitle("M●")
 			}
 
-		case <-mConnectMongo.ClickedCh:
-			go connectMongoDialog(binaryPath, &running)
+		case <-mConnectDB.ClickedCh:
+			go configurePostgresDialog(binaryPath, &running)
 
 		case <-mSetKey.ClickedCh:
 			go func() {
@@ -330,7 +330,7 @@ func startDaemon(binary string) {
 				reason = err.Error()
 			}
 			exec.Command("osascript", "-e",
-				fmt.Sprintf(`display notification "%s" with title "memoryd stopped" subtitle "The daemon exited unexpectedly"`, reason)).Run()
+				fmt.Sprintf(`display notification "%s" with title "pgmemory stopped" subtitle "The daemon exited unexpectedly"`, reason)).Run()
 		}
 	}()
 }
@@ -401,147 +401,75 @@ func extractCrashReason(logPath string) string {
 }
 
 func findBinary() string {
-	// 1. Same directory as the tray binary
-	exe, _ := os.Executable()
-	dir := filepath.Dir(exe)
-	candidate := filepath.Join(dir, "memoryd")
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
-	}
-
-	// 2. PATH lookup
-	if p, err := exec.LookPath("memoryd"); err == nil {
-		return p
-	}
-
-	// 3. Common install location
+	// 1. Common install locations (prefer installed copy so updates take effect).
 	if runtime.GOOS == "darwin" {
-		for _, p := range []string{"/opt/homebrew/bin/memoryd", "/usr/local/bin/memoryd"} {
+		for _, p := range []string{"/usr/local/bin/pgmemory", "/opt/homebrew/bin/pgmemory"} {
 			if _, err := os.Stat(p); err == nil {
 				return p
 			}
 		}
 	}
 
-	return "memoryd" // hope PATH has it
+	// 2. PATH lookup
+	if p, err := exec.LookPath("pgmemory"); err == nil {
+		return p
+	}
+
+	// 3. Same directory as the tray binary (fallback for dev / app bundle)
+	exe, _ := os.Executable()
+	dir := filepath.Dir(exe)
+	candidate := filepath.Join(dir, "pgmemory")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+
+	return "pgmemory" // hope PATH has it
 }
 
-func connectMongoDialog(binaryPath string, running *bool) {
-	choiceOut, err := exec.Command("osascript",
-		"-e", `display dialog "Connect memoryd to MongoDB:\n\n• Local — run MongoDB in Docker on this machine\n• Atlas — connect to a MongoDB Atlas cluster" buttons {"Cancel", "Atlas", "Local (Docker)"} default button "Local (Docker)" with title "memoryd – Connect to MongoDB"`,
-		"-e", `button returned of result`,
-	).Output()
-	if err != nil {
-		return // cancelled
-	}
-	switch strings.TrimSpace(string(choiceOut)) {
-	case "Local (Docker)":
-		setupLocalMongo(binaryPath, running)
-	case "Atlas":
-		setupAtlasMongo(binaryPath, running)
-	}
-}
-
-func setupLocalMongo(binaryPath string, running *bool) {
-	if exec.Command("docker", "info").Run() != nil {
-		exec.Command("osascript", "-e",
-			`display dialog "Docker is not running.\n\nStart Docker Desktop and try again, or use Atlas instead." buttons {"OK"} with icon stop with title "memoryd"`).Run()
-		return
+func configurePostgresDialog(binaryPath string, running *bool) {
+	// Read current value to show as default.
+	cfg, _ := config.Load()
+	defaultURL := cfg.PostgresURL
+	if defaultURL == "" {
+		defaultURL = "postgres://user:pass@host:5432/dbname?sslmode=require"
 	}
 
-	notify := func(msg string) {
-		exec.Command("osascript", "-e",
-			fmt.Sprintf(`display notification "%s" with title "memoryd"`, msg)).Run()
-	}
-
-	// Create or start the container.
-	if containerExists("memoryd-mongo") {
-		// Check if it's already running.
-		out, _ := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
-		alreadyRunning := false
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.TrimSpace(line) == "memoryd-mongo" {
-				alreadyRunning = true
-				break
-			}
-		}
-		if !alreadyRunning {
-			if err := exec.Command("docker", "start", "memoryd-mongo").Run(); err != nil {
-				exec.Command("osascript", "-e",
-					fmt.Sprintf(`display dialog "Failed to start MongoDB container: %s" buttons {"OK"} with icon stop with title "memoryd"`, err.Error())).Run()
-				return
-			}
-		}
-	} else {
-		notify("Creating MongoDB container...")
-		if err := exec.Command("docker", "run", "-d", "--name", "memoryd-mongo", "-p", "27017:27017", "mongodb/mongodb-atlas-local:8.0").Run(); err != nil {
-			exec.Command("osascript", "-e",
-				fmt.Sprintf(`display dialog "Failed to create MongoDB container: %s" buttons {"OK"} with icon stop with title "memoryd"`, err.Error())).Run()
-			return
-		}
-	}
-
-	// Wait for MongoDB to be ready.
-	notify("Waiting for MongoDB to be ready...")
-	ready := false
-	for i := 0; i < 30; i++ {
-		out, _ := exec.Command("docker", "exec", "memoryd-mongo", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok").Output()
-		if strings.TrimSpace(string(out)) == "1" {
-			ready = true
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-	if !ready {
-		exec.Command("osascript", "-e",
-			`display dialog "MongoDB did not become ready in time.\n\nCheck Docker Desktop and try again." buttons {"OK"} with icon stop with title "memoryd"`).Run()
-		return
-	}
-
-	// Create vector search index (best-effort — Atlas Local may already have it).
-	exec.Command("docker", "exec", "memoryd-mongo", "mongosh", "memoryd", "--quiet", "--eval",
-		`db.memories.createSearchIndex("vector_index","vectorSearch",{fields:[{type:"vector",numDimensions:1024,path:"embedding",similarity:"cosine"}]})`).Run()
-
-	finishMongoSetup("mongodb://localhost:27017/?directConnection=true", binaryPath, running)
-}
-
-func setupAtlasMongo(binaryPath string, running *bool) {
-	uriOut, err := exec.Command("osascript",
-		"-e", `display dialog "Enter your MongoDB Atlas connection string:" default answer "mongodb+srv://..." buttons {"Cancel", "Connect"} default button "Connect" with title "memoryd – Atlas"`,
+	urlOut, err := exec.Command("osascript",
+		"-e", fmt.Sprintf(`display dialog "Enter your Postgres connection URL:\n\nLeave blank to use the built-in embedded database." default answer "%s" buttons {"Cancel", "Save"} default button "Save" with title "pgmemory – Postgres"`, defaultURL),
 		"-e", `text returned of result`,
 	).Output()
 	if err != nil {
 		return // cancelled
 	}
-	uri := strings.TrimSpace(string(uriOut))
-	if uri == "" || uri == "mongodb+srv://..." {
-		return
-	}
-	finishMongoSetup(uri, binaryPath, running)
-}
+	url := strings.TrimSpace(string(urlOut))
 
-func finishMongoSetup(uri, binaryPath string, running *bool) {
-	if err := config.StoreCredential("mongodb_atlas_uri", uri); err != nil {
+	// Store the URL (empty string clears it, reverting to embedded mode).
+	if err := config.StoreCredential("postgres_url", url); err != nil {
 		exec.Command("osascript", "-e",
-			fmt.Sprintf(`display dialog "Failed to save credentials: %s" buttons {"OK"} with icon stop with title "memoryd"`, err.Error())).Run()
+			fmt.Sprintf(`display dialog "Failed to save connection URL: %s" buttons {"OK"} with icon stop with title "pgmemory"`, err.Error())).Run()
 		return
 	}
 
+	// Restart daemon to pick up the new connection.
 	stopDaemon()
 	time.Sleep(500 * time.Millisecond)
 	setStartGrace()
 	startDaemon(binaryPath)
 	*running = true
 
+	msg := "Connecting to Postgres — pgmemory is restarting"
+	if url == "" {
+		msg = "Using embedded Postgres — pgmemory is restarting"
+	}
 	exec.Command("osascript", "-e",
-		`display notification "MongoDB connected — memoryd is starting" with title "memoryd"`).Run()
+		fmt.Sprintf(`display notification "%s" with title "pgmemory"`, msg)).Run()
 }
 
 // setAnthropicKeyDialog prompts the user for their Anthropic API key and
 // stores it in the OS keychain, then restarts the daemon to pick it up.
 func setAnthropicKeyDialog(binaryPath string, running *bool) {
 	keyOut, err := exec.Command("osascript",
-		"-e", `display dialog "Enter your Anthropic API key:" default answer "" with hidden answer buttons {"Cancel", "Save"} default button "Save" with title "memoryd – Anthropic Key"`,
+		"-e", `display dialog "Enter your Anthropic API key:" default answer "" with hidden answer buttons {"Cancel", "Save"} default button "Save" with title "pgmemory – Anthropic Key"`,
 		"-e", `text returned of result`,
 	).Output()
 	if err != nil {
@@ -551,9 +479,9 @@ func setAnthropicKeyDialog(binaryPath string, running *bool) {
 	if key == "" {
 		return
 	}
-	if err := config.StoreCredential("anthropic_api_key", key); err != nil {
+	if err := config.SaveAnthropicAPIKey(key); err != nil {
 		exec.Command("osascript", "-e",
-			fmt.Sprintf(`display dialog "Failed to save API key: %s" buttons {"OK"} with icon stop with title "memoryd"`, err.Error())).Run()
+			fmt.Sprintf(`display dialog "Failed to save API key: %s" buttons {"OK"} with icon stop with title "pgmemory"`, err.Error())).Run()
 		return
 	}
 
@@ -566,7 +494,7 @@ func setAnthropicKeyDialog(binaryPath string, running *bool) {
 	}
 
 	exec.Command("osascript", "-e",
-		`display notification "Anthropic API key saved" with title "memoryd"`).Run()
+		`display notification "Anthropic API key saved" with title "pgmemory"`).Run()
 }
 
 // setModeChecks updates submenu check marks to reflect the active mode.
@@ -589,7 +517,7 @@ func setModeChecks(mode string, proxy, mcp, mcpRO *systray.MenuItem) {
 func switchMode(mode string, proxy, mcp, mcpRO *systray.MenuItem, binaryPath string, running *bool) {
 	if err := config.SetMode(mode); err != nil {
 		exec.Command("osascript", "-e",
-			fmt.Sprintf(`display dialog "Failed to set mode: %s" buttons {"OK"} with icon stop with title "memoryd"`, err.Error())).Run()
+			fmt.Sprintf(`display dialog "Failed to set mode: %s" buttons {"OK"} with icon stop with title "pgmemory"`, err.Error())).Run()
 		return
 	}
 
@@ -609,14 +537,14 @@ func switchMode(mode string, proxy, mcp, mcpRO *systray.MenuItem, binaryPath str
 		config.ModeMCPReadOnly: "MCP – read only",
 	}[mode]
 	exec.Command("osascript", "-e",
-		fmt.Sprintf(`display notification "Mode set to: %s" with title "memoryd"`, label)).Run()
+		fmt.Sprintf(`display notification "Mode set to: %s" with title "pgmemory"`, label)).Run()
 }
 
-// uninstallDialog confirms with the user and removes memoryd components.
+// uninstallDialog confirms with the user and removes pgmemory components.
 func uninstallDialog(binaryPath string) {
 	// Confirm.
 	_, err := exec.Command("osascript", "-e",
-		`display dialog "This will stop the daemon and remove:\n\n• memoryd binary & llama-server\n• Memoryd.app\n• ~/.memoryd (config, models, logs)\n• Docker container (memoryd-mongo)\n• MCP config entries (Claude Code, Claude Desktop, Cursor, Windsurf)\n• Stored credentials (OS keychain)\n\nThis cannot be undone." buttons {"Cancel", "Uninstall"} default button "Cancel" with icon caution with title "Uninstall memoryd"`, "-e",
+		`display dialog "This will stop the daemon and remove:\n\n• pgmemory binary & llama-server\n• Pgmemory.app\n• ~/.pgmemory (config, models, data)\n• MCP config entries (Claude Code, Claude Desktop, Cursor, Windsurf)\n• Stored credentials (OS keychain)\n\nThis cannot be undone." buttons {"Cancel", "Uninstall"} default button "Cancel" with icon caution with title "Uninstall pgmemory"`, "-e",
 		`button returned of result`).Output()
 	if err != nil {
 		return // user cancelled
@@ -652,43 +580,33 @@ func uninstallDialog(binaryPath string) {
 		}
 	}
 
-	// 5. Stop and remove Docker container.
-	if containerExists("memoryd-mongo") {
-		exec.Command("docker", "stop", "memoryd-mongo").Run()
-		if exec.Command("docker", "rm", "memoryd-mongo").Run() == nil {
-			removed = append(removed, "Docker container")
+	// 5. Remove ~/.pgmemory.
+	pgmemoryDir := config.Dir()
+	if _, err := os.Stat(pgmemoryDir); err == nil {
+		if os.RemoveAll(pgmemoryDir) == nil {
+			removed = append(removed, "~/.pgmemory")
 		} else {
-			failed = append(failed, "Docker container (remove manually: docker rm memoryd-mongo)")
+			failed = append(failed, "~/.pgmemory (permission denied)")
 		}
 	}
 
-	// 6. Remove ~/.memoryd.
-	memorydDir := config.Dir()
-	if _, err := os.Stat(memorydDir); err == nil {
-		if os.RemoveAll(memorydDir) == nil {
-			removed = append(removed, "~/.memoryd")
-		} else {
-			failed = append(failed, "~/.memoryd (permission denied)")
-		}
-	}
-
-	// 7. Remove Memoryd.app.
-	appPath := "/Applications/Memoryd.app"
+	// 7. Remove Pgmemory.app.
+	appPath := "/Applications/Pgmemory.app"
 	if _, err := os.Stat(appPath); err == nil {
 		if os.RemoveAll(appPath) == nil {
-			removed = append(removed, "Memoryd.app")
+			removed = append(removed, "Pgmemory.app")
 		} else {
-			failed = append(failed, "Memoryd.app (remove manually)")
+			failed = append(failed, "Pgmemory.app (remove manually)")
 		}
 	}
 
 	// 8. Remove binaries.
-	if binaryPath != "" && binaryPath != "memoryd" {
+	if binaryPath != "" && binaryPath != "pgmemory" {
 		if os.Remove(binaryPath) == nil {
-			removed = append(removed, "memoryd binary")
+			removed = append(removed, "pgmemory binary")
 		} else {
 			if exec.Command("sudo", "rm", "-f", binaryPath).Run() == nil {
-				removed = append(removed, "memoryd binary")
+				removed = append(removed, "pgmemory binary")
 			} else {
 				failed = append(failed, fmt.Sprintf("binary at %s (remove manually)", binaryPath))
 			}
@@ -697,7 +615,7 @@ func uninstallDialog(binaryPath string) {
 
 	// Remove llama-server if we installed it.
 	llamaPath := filepath.Join(filepath.Dir(binaryPath), "llama-server")
-	if binaryPath != "" && binaryPath != "memoryd" {
+	if binaryPath != "" && binaryPath != "pgmemory" {
 		if _, err := os.Stat(llamaPath); err == nil {
 			if os.Remove(llamaPath) == nil {
 				removed = append(removed, "llama-server binary")
@@ -709,7 +627,7 @@ func uninstallDialog(binaryPath string) {
 	}
 
 	// 9. Show result.
-	msg := "memoryd has been uninstalled."
+	msg := "pgmemory has been uninstalled."
 	if len(removed) > 0 {
 		msg += "\n\nRemoved:\n• " + strings.Join(removed, "\n• ")
 	}
@@ -719,12 +637,12 @@ func uninstallDialog(binaryPath string) {
 	msg += "\n\nThe tray app will now quit."
 
 	exec.Command("osascript", "-e",
-		fmt.Sprintf(`display dialog "%s" buttons {"OK"} with title "memoryd"`, msg)).Run()
+		fmt.Sprintf(`display dialog "%s" buttons {"OK"} with title "pgmemory"`, msg)).Run()
 
 	systray.Quit()
 }
 
-// cleanMCPConfig removes the memoryd entry from an MCP config file.
+// cleanMCPConfig removes the pgmemory (and legacy memoryd) entries from an MCP config file.
 // Works with any agent that uses the standard {"mcpServers": {...}} format.
 func cleanMCPConfig(configPath string) bool {
 	data, err := os.ReadFile(configPath)
@@ -742,10 +660,13 @@ func cleanMCPConfig(configPath string) bool {
 		return false
 	}
 
-	if _, exists := servers["memoryd"]; !exists {
+	_, hasPgmemory := servers["pgmemory"]
+	_, hasLegacy := servers["memoryd"]
+	if !hasPgmemory && !hasLegacy {
 		return false
 	}
 
+	delete(servers, "pgmemory")
 	delete(servers, "memoryd")
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -762,18 +683,4 @@ func openDashboard(port int) {
 		url += "?token=" + token
 	}
 	exec.Command("open", url).Start()
-}
-
-// containerExists checks if a Docker container exists (running or stopped).
-func containerExists(name string) bool {
-	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}").Output()
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.TrimSpace(line) == name {
-			return true
-		}
-	}
-	return false
 }

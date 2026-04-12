@@ -16,7 +16,7 @@ func TestExpandHome(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"~/.memoryd/models/foo.gguf", filepath.Join(home, ".memoryd/models/foo.gguf")},
+		{"~/.pgmemory/models/foo.gguf", filepath.Join(home, ".pgmemory/models/foo.gguf")},
 		{"/absolute/path", "/absolute/path"},
 		{"relative/path", "relative/path"},
 		{"", ""},
@@ -62,7 +62,7 @@ func TestLoad_CustomConfig(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestLoad_InvalidYAML(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestWriteDefault_CreatesFile(t *testing.T) {
 		t.Fatalf("WriteDefault() error: %v", err)
 	}
 
-	path := filepath.Join(tmp, ".memoryd", "config.yaml")
+	path := filepath.Join(tmp, ".pgmemory", "config.yaml")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("config file not created: %v", err)
@@ -135,7 +135,7 @@ func TestWriteDefault_NoOverwrite(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestEnsureDir_CreatesDirectory(t *testing.T) {
 		t.Fatalf("EnsureDir() error: %v", err)
 	}
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	info, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
@@ -181,12 +181,12 @@ func TestLoad_ExpandsHomePath(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
-	content := `model_path: "~/.memoryd/models/test.gguf"
+	content := `model_path: "~/.pgmemory/models/test.gguf"
 `
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(content), 0600); err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestLoad_ExpandsHomePath(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	expected := filepath.Join(tmp, ".memoryd/models/test.gguf")
+	expected := filepath.Join(tmp, ".pgmemory/models/test.gguf")
 	if cfg.ModelPath != expected {
 		t.Errorf("model_path = %q, want %q", cfg.ModelPath, expected)
 	}
@@ -300,13 +300,13 @@ func TestSetMode_PreservesOtherFields(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
 	content := `port: 8888
-postgres_url: "postgres://custom:5432/memoryd"
+postgres_url: "postgres://custom:5432/pgmemory"
 mode: proxy
 `
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(content), 0600); err != nil {
@@ -324,7 +324,7 @@ mode: proxy
 	if cfg.Port != 8888 {
 		t.Errorf("port = %d, want 8888 (SetMode should preserve other fields)", cfg.Port)
 	}
-	if cfg.PostgresURL != "postgres://custom:5432/memoryd" {
+	if cfg.PostgresURL != "postgres://custom:5432/pgmemory" {
 		t.Errorf("postgres_url = %q (SetMode should preserve other fields)", cfg.PostgresURL)
 	}
 	if cfg.Mode != ModeMCPReadOnly {
@@ -336,7 +336,7 @@ func TestLoad_ModeField(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	dir := filepath.Join(tmp, ".memoryd")
+	dir := filepath.Join(tmp, ".pgmemory")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/embedding"
+	"github.com/jeff-vincent/pgmemory/internal/embedding"
 )
 
 // DefaultQualityProtos are generic descriptions of high-value knowledge chunks.

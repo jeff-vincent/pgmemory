@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/config"
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/config"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -155,7 +155,7 @@ func scenarioReadTopK(ctx context.Context) error {
 
 	// Store 20 memories — all with unique content to avoid dedup.
 	for i := 0; i < 20; i++ {
-		content := fmt.Sprintf("Technical note %d: the memoryd pipeline component number %d handles a distinct stage of the ingestion and retrieval workflow with specific configuration options.", i, i)
+		content := fmt.Sprintf("Technical note %d: the pgmemory pipeline component number %d handles a distinct stage of the ingestion and retrieval workflow with specific configuration options.", i, i)
 		vec, _ := emb.Embed(ctx, content)
 		_ = st.Insert(ctx, store.Memory{
 			ID:        primitive.NewObjectID(),
@@ -198,7 +198,7 @@ func scenarioReadQuerySelfRetrieval(ctx context.Context) error {
 	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// Store a specific fact.
-	fact := "The memoryd write pipeline runs deduplication using cosine similarity threshold 0.92 against all stored memory embeddings before inserting a new chunk."
+	fact := "The pgmemory write pipeline runs deduplication using cosine similarity threshold 0.92 against all stored memory embeddings before inserting a new chunk."
 	vec, _ := emb.Embed(ctx, fact)
 	_ = st.Insert(ctx, store.Memory{
 		ID:        primitive.NewObjectID(),
@@ -209,7 +209,7 @@ func scenarioReadQuerySelfRetrieval(ctx context.Context) error {
 	})
 
 	// Query with closely matching text.
-	query := "memoryd write pipeline deduplication cosine similarity threshold"
+	query := "pgmemory write pipeline deduplication cosine similarity threshold"
 	result, memories, err := rp.RetrieveWithScores(ctx, query)
 	if err != nil {
 		return fmt.Errorf("retrieve: %w", err)

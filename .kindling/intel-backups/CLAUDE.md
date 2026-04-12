@@ -2,7 +2,7 @@
 
 > Shared memory/IP/project context is in the parent `CLAUDE.md` and `PROJECT_CONTEXT.md`. This file covers memoryd-specific architecture.
 
-Module: `github.com/memory-daemon/memoryd`
+Module: `github.com/jeff-vincent/memoryd`
 Go version: 1.26+
 Config: `~/.memoryd/config.yaml`
 

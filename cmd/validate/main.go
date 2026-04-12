@@ -1,4 +1,4 @@
-// Command validate is a standalone validation harness for memoryd's pipeline,
+// Command validate is a standalone validation harness for pgmemory's pipeline,
 // steward, and quality systems. It runs entirely in-memory with no external
 // dependencies (no MongoDB, no llama-server, no network).
 //
@@ -23,9 +23,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/memory-daemon/memoryd/internal/pipeline"
-	"github.com/memory-daemon/memoryd/internal/steward"
-	"github.com/memory-daemon/memoryd/internal/store"
+	"github.com/jeff-vincent/pgmemory/internal/pipeline"
+	"github.com/jeff-vincent/pgmemory/internal/steward"
+	"github.com/jeff-vincent/pgmemory/internal/store"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -160,7 +160,7 @@ func main() {
 	passed, failed := 0, 0
 
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
-	fmt.Println("  memoryd validation harness")
+	fmt.Println("  pgmemory validation harness")
 	fmt.Println("  in-memory store • hash embedder • time-controlled • no network")
 	fmt.Printf("  %d scenarios: pipeline · dedup · redaction · read · quality · steward · edge\n", len(order))
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
