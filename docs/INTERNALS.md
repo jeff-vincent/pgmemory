@@ -1,8 +1,8 @@
-# memoryd — Internal Architecture Documentation
+# pgmemory — Internal Architecture Documentation
 
-> Persistent memory for coding agents. A local daemon that gives AI coding agents long-term memory via transparent ingestion and retrieval backed by MongoDB vector search.
+> Persistent memory for coding agents. A local daemon that gives AI coding agents long-term memory via transparent ingestion and retrieval backed by PostgreSQL + pgvector.
 
-This document is the definitive engineering reference for memoryd. It covers every subsystem in detail, with particular depth on the **ingest processing pipeline** — the core differentiator that transforms raw web pages, documents, and agent conversations into high-quality, searchable knowledge.
+This document is the definitive engineering reference for pgmemory. It covers every subsystem in detail, with particular depth on the **ingest processing pipeline** — the core differentiator that transforms raw web pages, documents, and agent conversations into high-quality, searchable knowledge.
 
 ---
 
@@ -30,7 +30,7 @@ This document is the definitive engineering reference for memoryd. It covers eve
    - [4.7 Rejection Store & Adaptive Noise Learning](#47-rejection-store--adaptive-noise-learning)
 5. [Read Pipeline (Retrieval)](#5-read-pipeline-retrieval)
    - [5.1 Local Mode (Vector Search)](#51-local-mode-vector-search)
-   - [5.2 Atlas Mode (Hybrid Search)](#52-atlas-mode-hybrid-search)
+   - [5.2 Hybrid Search](#52-hybrid-search)
    - [5.3 Context Formatting & Injection](#53-context-formatting--injection)
    - [5.4 Quality Tracking](#54-quality-tracking)
 6. [Steward (Background Quality Maintenance)](#6-steward-background-quality-maintenance)
@@ -38,9 +38,7 @@ This document is the definitive engineering reference for memoryd. It covers eve
    - [6.2 Pruning](#62-pruning)
    - [6.3 Merging Near-Duplicates](#63-merging-near-duplicates)
 7. [Storage Layer](#7-storage-layer)
-   - [7.1 MongoStore](#71-mongostore)
-   - [7.2 AtlasStore](#72-atlasstore)
-   - [7.3 MultiStore (Fan-Out)](#73-multistore-fan-out)
+   - [7.1 PostgresStore](#71-postgresstore)
 8. [Proxy Layer](#8-proxy-layer)
    - [8.1 Anthropic Proxy](#81-anthropic-proxy)
    - [8.2 Q&A Synthesis & Session Summaries](#82-qa-synthesis--session-summaries)
@@ -54,7 +52,7 @@ This document is the definitive engineering reference for memoryd. It covers eve
 
 ## 1. System Overview
 
-memoryd is a Go daemon that runs locally per developer. It captures knowledge from AI coding sessions and external documentation, stores it in MongoDB with vector embeddings, and surfaces it when relevant in future sessions.
+pgmemory is a Go daemon that runs locally per developer. It captures knowledge from AI coding sessions and external documentation, stores it in PostgreSQL with pgvector embeddings, and surfaces it when relevant in future sessions. By default it runs an embedded PostgreSQL instance; for teams, connect to a shared PostgreSQL with pgvector.
 
 ```
                      ┌─────────────────────────────────┐
@@ -66,7 +64,7 @@ memoryd is a Go daemon that runs locally per developer. It captures knowledge fr
                     (transparent)      (explicit tools)
                             │              │
                      ┌──────▼──────────────▼────────────┐
-                     │          memoryd daemon           │
+                     │         pgmemory daemon           │
                      │        127.0.0.1:7432             │
                      │                                   │
                      │  ┌─────────┐  ┌──────────────┐   │
@@ -100,11 +98,12 @@ memoryd is a Go daemon that runs locally per developer. It captures knowledge fr
                      └──────────────┬─────────────────────┘
                                     │
                      ┌──────────────▼─────────────────────┐
-                     │     MongoDB (Atlas or Local)        │
-                     │                                     │
-                     │  memories  │ retrieval_events       │
-                     │  sources   │ source_pages           │
-                     └─────────────────────────────────────┘
+                     │   PostgreSQL + pgvector              │
+                     │   (embedded on 7434, or shared)      │
+                     │                                      │
+                     │  memories  │ retrieval_events        │
+                     │  sources   │ source_pages            │
+                     └──────────────────────────────────────┘
 ```
 
 **Three integration modes:**
@@ -119,26 +118,26 @@ memoryd is a Go daemon that runs locally per developer. It captures knowledge fr
 
 ## 2. Data Model
 
-### Collection: `memories`
+### Table: `memories`
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `_id` | ObjectId | Primary key |
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | text (hex ObjectId) | Primary key |
 | `content` | string | The stored text chunk (secrets redacted) |
-| `embedding` | []float32 | 1024-dim voyage-4-nano vector |
+| `embedding` | vector(1024) | 1024-dim voyage-4-nano vector (pgvector) |
 | `source` | string | Origin label: `"claude-code"`, `"mcp"`, `"source:docs\|https://..."` |
 | `created_at` | time.Time | When stored |
-| `metadata` | map[string]any | Extensible: `extends_source`, `extends_memory`, `page_url`, `source_name`, `database`, etc. |
+| `metadata` | jsonb | Extensible: `extends_source`, `extends_memory`, `page_url`, `source_name`, etc. |
 | `hit_count` | int | Times returned in search results |
 | `quality_score` | float64 | Steward-computed score (0–1), used for pre-filtering |
 | `content_score` | float64 | Write-time semantic quality score (0–1) |
 | `last_retrieved` | time.Time | Most recent search appearance |
 
-### Collection: `sources`
+### Table: `sources`
 
 Tracks ingested external knowledge sources (crawled sites, uploaded files).
 
-| Field | Type | Purpose |
+| Column | Type | Purpose |
 |-------|------|---------|
 | `name` | string | Human label for the source |
 | `base_url` | string | Crawl origin URL or `upload://NAME` |
@@ -149,24 +148,24 @@ Tracks ingested external knowledge sources (crawled sites, uploaded files).
 | `headers` | map | Custom HTTP headers (Cookie, Authorization) |
 | `error` | string | Last error message if status is "error" |
 
-### Collection: `source_pages`
+### Table: `source_pages`
 
 Page-level change detection for incremental re-crawls.
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `source_id` | ObjectId | References parent source |
+| Column | Type | Purpose |
+|--------|------|---------|
+| `source_id` | text | References parent source |
 | `url` | string | Page URL or filename |
 | `content_hash` | string | SHA-256 of extracted text |
 | `last_fetched` | time.Time | When last crawled |
 
-### Collection: `retrieval_events`
+### Table: `retrieval_events`
 
 Quality learning signal — logged every time memories appear in search results.
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `memory_id` | ObjectId | Which memory was retrieved |
+| Column | Type | Purpose |
+|--------|------|---------|
+| `memory_id` | text | Which memory was retrieved |
 | `score` | float64 | Similarity score at retrieval time |
 | `created_at` | time.Time | When the retrieval happened |
 
@@ -240,7 +239,7 @@ The ingest pipeline is responsible for turning **external knowledge** — docume
 ### 3.1 Source Ingestion: Web Crawl Path
 
 **Entry point:** `Ingester.IngestSource(ctx, source)`
-**Triggered by:** POST `/api/sources` (dashboard/API), `source_ingest` MCP tool, `memoryd ingest` CLI
+**Triggered by:** POST `/api/sources` (dashboard/API), `source_ingest` MCP tool, `pgmemory ingest` CLI
 
 The web crawl path processes documentation sites and wikis. It runs asynchronously (fired as a goroutine from the API) with a 30-minute timeout.
 
@@ -520,7 +519,7 @@ Raw assistant response or MCP content
          ├─ Content score gate (< threshold → drop)
          ├─ Dedup check (cosine ≥ 0.92 → skip)
          ├─ Source extension tagging (cosine ≥ 0.75 → tag)
-         └─ Insert to MongoDB
+         └─ Insert to store
 ```
 
 ### 4.1 Preprocessing
@@ -628,7 +627,7 @@ When enabled (`llm_synthesis: true` + `ANTHROPIC_API_KEY` set), multi-chunk topi
 
 **Package:** `internal/rejection`
 
-The rejection store is a bounded ring-buffer (default 500 entries) persisted as JSONL at `~/.memoryd/rejection_log.jsonl`. It captures exchanges rejected by either the pre-filter or the LLM synthesizer.
+The rejection store is a bounded ring-buffer (default 500 entries) persisted as JSONL at `~/.pgmemory/rejection_log.jsonl`. It captures exchanges rejected by either the pre-filter or the LLM synthesizer.
 
 **What gets stored:**
 ```go
@@ -655,30 +654,21 @@ Entry{
 
 The read pipeline converts a user query into relevant context for the agent. It's used by the MCP `memory_search` tool (all modes) and the proxy system prompt injection (proxy mode, currently disabled — retrieval is MCP-only).
 
-### 5.1 Local Mode (Vector Search)
+### 5.1 Hybrid Search
 
-**Store:** `MongoStore`
-**Query:** `$vectorSearch` aggregation pipeline
-
-```
-User message → Embed(text) → $vectorSearch(vector, topK=5, candidates=topK*20)
-```
-
-Returns top-k memories by cosine similarity. No pre-filtering, no text component. Works with MongoDB Community and Atlas Local (Docker).
-
-### 5.2 Atlas Mode (Hybrid Search)
-
-**Store:** `AtlasStore` (wraps `MongoStore`)
+**Store:** `PostgresStore`
 **Detection:** Runtime interface assertion `store.(HybridSearcher)`
+
+pgmemory always uses hybrid search via PostgreSQL + pgvector. The same `PostgresStore` implementation serves both embedded and remote PostgreSQL.
 
 Three-phase search:
 
-1. **Filtered vector search** — `$vectorSearch` with pre-filter:
-   - Quality score: `$or: [{quality_score >= 0.05}, {quality_score == 0}]` (includes new unscored memories)
+1. **Filtered vector search** — pgvector HNSW cosine similarity with pre-filter:
+   - Quality score: items with `quality_score < 0.05` excluded (new unscored items kept)
    - Source prefix: optional, for targeted search within a knowledge domain
-   - Fetches 4× requested results for fusion room
+   - Fetches extra candidates for fusion room
 
-2. **Text search** (if `TextQuery` set) — Atlas `$search` with Lucene full-text on `content` field. Non-fatal failure falls back to vector-only.
+2. **Text search** (if `TextQuery` set) — PostgreSQL full-text search via `ts_rank` + `plainto_tsquery` against GIN-indexed `tsvector`. Non-fatal failure falls back to vector-only.
 
 3. **Reciprocal Rank Fusion (RRF)** — Merges the two ranked lists:
    ```
@@ -729,7 +719,7 @@ Every search invocation fires a background goroutine that:
 
 This data feeds the steward's scoring formula and the adaptive learning threshold.
 
-**Learning mode:** The system starts in "learning mode" (< 50 retrieval events). While learning, the Atlas search doesn't apply quality pre-filtering — all memories are considered equally. This prevents cold-start issues where new memories would be filtered out before they've had a chance to prove useful.
+**Learning mode:** The system starts in "learning mode" (< 50 retrieval events). While learning, search doesn't apply quality pre-filtering — all memories are considered equally. This prevents cold-start issues where new memories would be filtered out before they've had a chance to prove useful.
 
 ---
 
@@ -796,58 +786,31 @@ Scans up to 200 memories per sweep:
 
 ## 7. Storage Layer
 
-### 7.1 MongoStore
+### 7.1 PostgresStore
 
 **Package:** `internal/store`
-**Implements:** `Store`, `QualityStore`, `SourceStore`, `StewardStore` (4 interfaces)
+**Implements:** `Store`, `QualityStore`, `SourceStore`, `HybridSearcher`
 
-The base MongoDB implementation. Works with Community Edition, Atlas Local (Docker), and Atlas proper.
+The unified PostgreSQL implementation. Works with both embedded PostgreSQL (port 7434) and any remote PostgreSQL instance with pgvector.
 
-**Collections:** `memories`, `retrieval_events`, `sources`, `source_pages`
+**Tables:** `memories`, `retrieval_events`, `sources`, `source_pages`
 
-**Vector search:** Uses Atlas `$vectorSearch` aggregation stage with `numCandidates = topK * 20` for recall quality.
+**Indexes:**
+- `memories_embedding_idx` — HNSW index using `vector_cosine_ops` (m=16, ef_construction=64) for fast approximate nearest neighbor search
+- `memories_content_fts` — GIN index on `to_tsvector('english', content)` for full-text search
+- `memories_source_idx` — B-tree on source field for prefix filtering
 
 **Key methods:**
-- `VectorSearch(embedding, topK)` — plain $vectorSearch, no filters
+- `VectorSearch(embedding, topK)` — pgvector cosine similarity search with min 0.05 threshold
+- `filteredVectorSearch(embedding, topK, opts)` — vector search with optional quality score and source prefix filters
+- `textSearch(query, topK)` — PostgreSQL full-text search via `ts_rank` + `plainto_tsquery`
+- `HybridSearch(embedding, topK, opts)` — full hybrid: vector + text → RRF fusion → MMR re-ranking
 - `Insert(mem)` — sets `created_at` if missing
-- `List(query, limit)` — regex text search on content field
-- `ListBySource(prefix, limit)` — regex prefix match on source field
-- `CountBySource(source)` — exact match count
-- `ListOldest(limit)` — for steward scanning, includes embeddings
-- `UpdateQualityScore(id, score)` — steward scoring
-- `UpdateContent(id, content, embedding)` — steward merging
-- `CheckVectorIndex(ctx)` — verifies vector_index exists at startup
+- `List(query, limit)` — text search on content field
+- `ListBySource(prefix, limit)` — prefix match on source field
+- `AverageRetrievalScore(ctx, id)` — average similarity of retrieval events for quality scoring
 
-### 7.2 AtlasStore
-
-**Package:** `internal/store`
-**Wraps:** `*MongoStore` (embedded)
-**Adds:** `HybridSearcher` interface
-
-Atlas-specific features that require Atlas proper (not Community, not Atlas Local):
-
-- **Pre-filtered vector search** with quality score thresholds and source prefix filters
-- **Full-text search** via Lucene `$search` on the `text_index`
-- **Hybrid search** combining both via Reciprocal Rank Fusion
-- **MMR re-ranking** for result diversity
-
-**Detection:** The read pipeline uses runtime interface assertion `store.(HybridSearcher)` to auto-detect capabilities. No build tags or separate binaries.
-
-### 7.3 MultiStore (Fan-Out)
-
-**Package:** `internal/store`
-**Implements:** `Store`, `HybridSearcher`
-
-Fans out search across multiple databases and merges results by score. Supports the team knowledge hub pattern where each team has its own database.
-
-**Write routing:** Only the primary (first writable) database accepts writes. All others are enforced read-only, even if configured as "full".
-
-**Search fan-out:**
-1. Launch a search goroutine per enabled database
-2. Tag each result with its database name in metadata
-3. Collect all results, sort by score descending, return top-k
-
-**Database management:** Databases can be added/removed/toggled at runtime via the dashboard API. Changes are persisted to config.
+**Detection:** The read pipeline uses runtime interface assertion `store.(HybridSearcher)` to enable hybrid search automatically.
 
 ---
 
@@ -912,7 +875,7 @@ Rejected exchanges are logged to the rejection store for adaptive noise learning
 
 **Package:** `internal/mcp`
 **Protocol:** JSON-RPC over stdio
-**Started by:** `memoryd mcp` command
+**Started by:** `pgmemory mcp` command
 
 The MCP server is a thin stdio bridge that calls the daemon's HTTP API. It delegates all logic to the daemon, ensuring a single source of truth.
 
@@ -934,19 +897,19 @@ The MCP server is a thin stdio bridge that calls the daemon's HTTP API. It deleg
 
 In `mcp-readonly` mode, all write tools are omitted from the tool list.
 
-**Auto-registration:** On first `memoryd start`, the daemon auto-registers itself as an MCP server in Claude Code, Cursor, Windsurf, and Cline (if installed).
+**Auto-registration:** On first `pgmemory start`, the daemon auto-registers itself as an MCP server in Claude Code, Cursor, Windsurf, and Cline (if installed).
 
 ---
 
 ## 10. Configuration & Security
 
-### Config File: `~/.memoryd/config.yaml`
+### Config File: `~/.pgmemory/config.yaml`
 
 Created automatically on first run with sensible defaults. All pipeline thresholds are hot-reloadable via the dashboard.
 
 ### Authentication
 
-- **API token** stored at `~/.memoryd/token` (64 hex characters, 0600 permissions)
+- **API token** stored at `~/.pgmemory/token` (64 hex characters, 0600 permissions)
 - Auto-generated by `EnsureToken()` on daemon startup
 - Required for `/api/*` and `/` (dashboard) endpoints
 - Not required for `/v1/*` (proxy) or `/health`
@@ -954,8 +917,8 @@ Created automatically on first run with sensible defaults. All pipeline threshol
 
 ### Credential Management
 
-- MongoDB URIs with passwords use OS keychain storage
-- Config file stores sentinel `keychain:memoryd/mongodb_atlas_uri`
+- PostgreSQL URLs with passwords use OS keychain storage
+- Config file stores sentinel `keychain:pgmemory/postgres_url`
 - At load time, `resolveCredential()` fetches from keychain
 - Never stored in plaintext on disk
 
@@ -1002,10 +965,10 @@ Created automatically on first run with sensible defaults. All pipeline threshol
 ## 12. Package Dependency Map
 
 ```
-cmd/memoryd/main.go ──────────────────────── CLI entrypoint
+cmd/pgmemory/main.go ────────────────────── CLI entrypoint
   ├── config          Load YAML, expand paths, resolve keychain
   ├── embedding       LlamaEmbedder (llama-server subprocess)
-  ├── store           MongoStore → AtlasStore → MultiStore
+  ├── store           PostgresStore (pgvector, hybrid search, RRF, MMR)
   ├── pipeline        ReadPipeline, WritePipeline
   ├── quality         Tracker, ContentScorer
   ├── steward         Background quality sweep
@@ -1040,9 +1003,8 @@ internal/quality/ ────────────────────�
 
 internal/store/ ──────────────────────────── Persistence
   ├── store.go        Interfaces (Store, QualityStore, SourceStore, HybridSearcher)
-  ├── mongo.go        MongoStore (Community + Atlas Local)
-  ├── atlas.go        AtlasStore (hybrid search, RRF, MMR)
-  └── multi.go        MultiStore (fan-out across databases)
+  ├── postgres.go     PostgresStore (hybrid search, RRF, MMR)
+  └── embedded.go     Embedded PostgreSQL lifecycle
 
 internal/mcp/ ────────────────────────────── MCP stdio bridge
   └── server.go       JSON-RPC tools → daemon HTTP API

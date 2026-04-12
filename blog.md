@@ -1,8 +1,8 @@
 # Teaching a Memory Daemon to Forget: Adaptive Noise Filtering for AI Agent Memory
 
-AI coding agents are powerful — but they forget everything between sessions. memoryd is a local daemon that fixes this. It sits between your coding agent (Claude Code, Cursor, etc.) and the LLM API, transparently capturing useful knowledge from every conversation and retrieving it when relevant. Think of it as long-term memory for your AI pair programmer.
+AI coding agents are powerful — but they forget everything between sessions. pgmemory is a local daemon that fixes this. It sits between your coding agent (Claude Code, Cursor, etc.) and the LLM API, transparently capturing useful knowledge from every conversation and retrieving it when relevant. Think of it as long-term memory for your AI pair programmer.
 
-The architecture is straightforward: every response from the LLM flows through a write pipeline that chunks, embeds, deduplicates, and stores the content in a MongoDB vector store. On the next request, relevant memories are retrieved via vector search and injected into context. The agent never knows it's there.
+The architecture is straightforward: every response from the LLM flows through a write pipeline that chunks, embeds, deduplicates, and stores the content in a PostgreSQL + pgvector store. On the next request, relevant memories are retrieved via hybrid search and injected into context. The agent never knows it's there.
 
 But there's a problem: **most of what an AI coding agent says isn't worth remembering.**
 
@@ -83,7 +83,7 @@ We ran three sequential benchmark passes against the same 1,000-entry dataset:
 - **Run 2**: Memories wiped, but rejection store preserved (500 entries accumulated during Run 1)
 - **Run 3**: Memories wiped again, rejection store preserved (now reflecting two passes of learning)
 
-Each run sent every entry through the live memoryd `/api/ingest` endpoint — the same path that production traffic takes. No mocks, no shortcuts.
+Each run sent every entry through the live pgmemory `/api/ingest` endpoint — the same path that production traffic takes. No mocks, no shortcuts.
 
 ### Metrics
 
@@ -161,4 +161,4 @@ A few design choices that made this work:
 
 ## Try It
 
-memoryd is open source and runs entirely locally. A MongoDB instance (local or Atlas), a small embedding model, and an API key for your LLM provider is all you need. Point your coding agent at `127.0.0.1:7432` and it gains persistent memory — with an adaptive noise filter that gets smarter the more you use it.
+pgmemory is open source and runs entirely locally. An embedded PostgreSQL instance starts automatically, a small embedding model runs on your CPU, and an API key for your LLM provider is all you need. Point your coding agent at `127.0.0.1:7432` and it gains persistent memory — with an adaptive noise filter that gets smarter the more you use it.

@@ -5,33 +5,40 @@ title: Configuration
 
 # Configuration
 
-memoryd reads configuration from `~/.memoryd/config.yaml` on each team member's machine. Only the MongoDB connection string is required — everything else has sensible defaults.
+pgmemory reads configuration from `~/.pgmemory/config.yaml`. For solo use, no configuration is needed — embedded PostgreSQL starts automatically with sensible defaults.
 
-## Minimal setup (what most team members need)
+## Solo use (zero config)
+
+Just run `pgmemory start`. Embedded PostgreSQL starts on port 7434, the proxy listens on 7432, and everything works.
+
+## Team use
+
+The only required setting is the shared PostgreSQL connection string:
 
 ```yaml
-mongodb_atlas_uri: "mongodb+srv://team-user:password@cluster0.mongodb.net/?retryWrites=true"
-atlas_mode: true
+postgres_url: "postgres://team-user:password@your-host:5432/pgmemory?sslmode=require"
 ```
 
-That's it for most people. The connection string comes from whoever set up the shared cluster. `atlas_mode: true` turns on the full feature set.
+Or store it securely in your OS keychain:
+```bash
+pgmemory credentials set-postgres-url
+```
+
+The config file will reference it as `postgres_url: "keychain:pgmemory/postgres_url"`.
 
 ## Full reference
 
 ```yaml
-# Required — shared MongoDB Atlas connection string
-mongodb_atlas_uri: "mongodb+srv://team:pass@cluster0.mongodb.net/?retryWrites=true"
+# PostgreSQL connection string. When omitted, embedded PostgreSQL is used.
+# postgres_url: "postgres://user:pass@host:5432/pgmemory?sslmode=require"
 
 # Local proxy port (default: 7432)
 port: 7432
 
-# MongoDB database name (default: "memoryd")
-mongodb_database: "memoryd"
-
 # Path to the local embedding model (auto-downloaded on first run)
-model_path: "~/.memoryd/models/voyage-4-nano.gguf"
+model_path: "~/.pgmemory/models/voyage-4-nano.gguf"
 
-# Embedding dimensions — must match the Atlas vector index (default: 1024)
+# Embedding dimensions — must match the vector index (default: 1024)
 embedding_dim: 1024
 
 # Number of knowledge items retrieved per query (default: 5)
@@ -43,9 +50,9 @@ retrieval_max_tokens: 2048
 # Upstream LLM provider URL (default: https://api.anthropic.com)
 upstream_anthropic_url: "https://api.anthropic.com"
 
-# Enable Atlas hybrid search (default: false)
-# Set to true when using a shared Atlas cluster
-atlas_mode: false
+# Enable LLM-based synthesis for higher quality memory extraction
+# Requires an Anthropic API key (set via tray app or credentials command)
+llm_synthesis: false
 
 # Quality maintenance settings
 steward:
@@ -62,19 +69,9 @@ pipeline:
   content_score_pre_gate: 0.35    # Adaptive noise score threshold (0 = disabled)
 ```
 
-## Atlas mode
+## Tuning
 
-When `atlas_mode: true`, memoryd enables:
-
-- **Hybrid search** — combines meaning-based and keyword-based retrieval for more accurate results
-- **Quality pre-filtering** — search results are filtered by quality score at the database level
-- **Source-scoped search** — filter results by knowledge source
-
-This is the recommended setting for any team deployment using a shared Atlas cluster.
-
-## Tuning for your team
-
-The defaults work well for most teams. If you need to adjust:
+The defaults work well for most use cases. If you need to adjust:
 
 | Scenario | What to change |
 |---|---|
@@ -89,10 +86,10 @@ The defaults work well for most teams. If you need to adjust:
 
 ## Environment variables
 
-The only environment variable relevant to memoryd is the one that connects your AI tool to the proxy:
+The only environment variable relevant to pgmemory is the one that connects your AI tool to the proxy:
 
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:7432
 ```
 
-This tells Claude Code (or any Anthropic-compatible tool) to route through memoryd. memoryd itself reads everything from `config.yaml`.
+This tells Claude Code (or any Anthropic-compatible tool) to route through pgmemory. pgmemory itself reads everything from `config.yaml` and the OS keychain.

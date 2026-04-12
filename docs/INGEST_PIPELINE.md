@@ -1,6 +1,6 @@
 # Ingest Pipeline Deep Dive
 
-> The ingest pipeline is what makes memoryd more than "RAG with an MCP wrapper." It transforms raw documentation into structure-preserving, deduplicated, incrementally-refreshable knowledge — the foundation for a shared team knowledge system.
+> The ingest pipeline is what makes pgmemory more than "RAG with an MCP wrapper." It transforms raw documentation into structure-preserving, deduplicated, incrementally-refreshable knowledge — the foundation for a shared team knowledge system.
 
 This document provides line-by-line clarity on the ingest pipeline's behavior, decision points, and design rationale. It's intended for engineers building on or debugging the pipeline.
 
@@ -29,7 +29,7 @@ This document provides line-by-line clarity on the ingest pipeline's behavior, d
 
 Most RAG systems are glorified `split("\n\n")` → embed → search. They throw away document structure, can't incrementally update when sources change, have no concept of source provenance, and treat a heading the same as a footnote.
 
-memoryd's ingest pipeline is different:
+pgmemory's ingest pipeline is different:
 
 1. **Structure-aware chunking** — Headings, code blocks, lists, and tables are parsed as typed structural segments. A code block is never split mid-function. List items aren't severed from their context. Headings propagate to all their children.
 
@@ -41,7 +41,7 @@ memoryd's ingest pipeline is different:
 
 5. **Secret safety** — All content is redacted before embedding. AWS keys, API tokens, connection strings, and PII never enter the vector store.
 
-This combination means memoryd can serve as a **team knowledge hub** — not just a session-scoped memory store, but a durable, infrastructure-grade knowledge base that improves with every crawl.
+This combination means pgmemory can serve as a **team knowledge hub** — not just a session-scoped memory store, but a durable, infrastructure-grade knowledge base that improves with every crawl.
 
 ---
 
@@ -52,7 +52,7 @@ This combination means memoryd can serve as a **team knowledge hub** — not jus
 ```
 POST /api/sources          (dashboard/REST API)
 source_ingest MCP tool     (Claude Code/Cursor)
-memoryd ingest CLI         (command line)
+pgmemory ingest CLI         (command line)
 ```
 
 All three create a `Source` record and call `Ingester.IngestSource()` in a background goroutine with a 30-minute context timeout.
@@ -235,7 +235,7 @@ Computed on **extracted text**, not raw HTML. This means layout changes (new CSS
 
 ## Stage 2: Change Detection
 
-**Collections:** `source_pages` (MongoDB)
+**Table:** `source_pages` (PostgreSQL)
 **Key:** `(source_id, url)` — uniquely identifies one page within one source
 
 ### Flow
@@ -468,7 +468,7 @@ Applied to every section after grouping, before embedding. Secrets never enter t
 | Slack token | `xoxb-123-456-abc123` | `[REDACTED:SLACK_TOKEN]` |
 | Stripe key | `sk_live_abcdef123456` | `[REDACTED:STRIPE_KEY]` |
 | Private key block | `-----BEGIN RSA PRIVATE KEY-----` | `[REDACTED:PRIVATE_KEY]` |
-| Connection string | `mongodb+srv://user:pass@cluster.mongodb.net` | `[REDACTED:CONNECTION_STRING]@cluster.mongodb.net` |
+| Connection string | `postgres://user:pass@host:5432/db` | `[REDACTED:CONNECTION_STRING]@host:5432/db` |
 | Password in key=value | `DB_PASSWORD=hunter2` | `DB_PASSWORD=[REDACTED]` |
 | JWT | `eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIx...` | `[REDACTED:JWT]` |
 | SSH key | `ssh-rsa AAAA...` | `[REDACTED:SSH_KEY]` |

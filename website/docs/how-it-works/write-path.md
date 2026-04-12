@@ -5,12 +5,12 @@ title: How Knowledge is Captured
 
 # How Knowledge is Captured
 
-Every AI interaction across your team is automatically processed into reusable knowledge — with zero impact on response speed.
+Every AI interaction is automatically processed into reusable knowledge — with zero impact on response speed.
 
 ## The flow
 
 ```
-AI response → Pre-filter → Length check → Noise score → LLM quality gate → Break into pieces → Filter → Scrub secrets → Deduplicate → Store
+AI response → Pre-filter → Length check → Noise score → LLM quality gate → Atomic fact extraction → Scrub secrets → Deduplicate → Store
 ```
 
 ### 1. Pre-filter cheap noise
@@ -21,7 +21,7 @@ Rejected exchanges are logged and used to **teach the system what noise looks li
 
 ### 2. Check response length
 
-Very short responses (under 80 characters by default) almost never contain durable knowledge. These are skipped before making any LLM call, saving cost and reducing noise.
+Very short responses (under 80 characters by default) almost never contain durable knowledge. These are skipped before making any LLM call.
 
 ### 3. Score against noise prototypes
 
@@ -29,24 +29,19 @@ The raw response text is embedded and compared against learned noise prototypes 
 
 This gate is **adaptive**: as the system sees more noise, it gets better at recognizing it. The prototypes are rebuilt every 25 rejections from a ring buffer of the 500 most recent rejected exchanges.
 
-### 4. LLM quality gate
+### 4. LLM quality gate & atomic fact extraction
 
-Responses that pass the automated filters go to an LLM (Claude Haiku) for final judgment. The model either distills the exchange into a concise knowledge entry or returns "SKIP" if there's no durable value. This catches nuanced noise that pattern matching misses.
+Responses that pass the automated filters go to an LLM (Claude Haiku) for synthesis. The model extracts **atomic facts** — individual, self-contained pieces of knowledge — using a `FACT:` prefix format. If there's no durable value, it returns "SKIP".
 
-### 5. Break into meaningful pieces
+Each extracted fact is stored as its own memory, making retrieval more precise. A single conversation turn that covers deployment procedures and API conventions produces separate memories for each topic.
 
-Raw conversation text is split into knowledge-sized chunks at natural boundaries — paragraph breaks, logical sections. A function explanation stays together. A list of deployment steps stays together. Only oversized blocks get split further.
+### 5. Code block stripping
 
-### 6. Filter noise
+Before processing, fenced code blocks are stripped from the content. Raw code dumps are noise for the knowledge store — what matters is the explanation and reasoning around the code.
 
-Not everything in a conversation is worth keeping. memoryd automatically filters:
+### 6. Scrub secrets
 
-- **Too short** — fragments under 20 characters (code snippets, acknowledgments)
-- **Not natural language** — binary data, ASCII art, raw output with less than 40% readable text
-
-### 7. Scrub secrets
-
-**Before anything is stored**, memoryd scrubs sensitive content using 13 detection patterns:
+**Before anything is stored**, pgmemory scrubs sensitive content using 13 detection patterns:
 
 | What's detected | Examples |
 |---|---|
@@ -56,47 +51,41 @@ Not everything in a conversation is worth keeping. memoryd automatically filters
 | Connection strings | Database URIs with embedded passwords |
 | Generic secrets | Key-value pairs containing `password`, `secret`, `token`, `api_key` |
 
-Detected values are replaced with safe placeholders (e.g., `[REDACTED:AWS_KEY]`). **Secrets never enter the shared knowledge store.** This is critical for team deployments where multiple people contribute to the same database.
+Detected values are replaced with safe placeholders (e.g., `[REDACTED:AWS_KEY]`). **Secrets never enter the knowledge store.**
 
-### 8. Deduplicate
+### 7. Deduplicate & supersession tagging
 
 Each new piece of knowledge is compared against what's already in the store:
 
 | Similarity | What happens |
 |---|---|
 | **Very high** (≥ 92%) | Already known — skip |
-| **Moderate** (≥ 75%, from a source) | Related to existing reference material — stored with a link back to the original |
+| **High** (75-92%, from a source) | Related to existing reference material — stored with a link back. This is "supersession tagging" — real-world learnings extend reference docs |
 | **Low** | Novel knowledge — stored normally |
 
-This is especially valuable for teams: when three engineers independently learn the same thing about a service, it's stored once — not three times.
+### 8. Store
 
-### 9. Store
-
-Each surviving piece becomes a knowledge item in the shared MongoDB store, available to every team member's AI tools immediately.
+Each surviving fact becomes a knowledge item in PostgreSQL, available immediately for retrieval.
 
 ## Why async matters
 
-The entire capture pipeline runs in the background. The AI response streams back to the developer in real-time — memoryd processes it after delivery. Team members never experience any slowdown from the knowledge capture process.
+The entire capture pipeline runs in the background. The AI response streams back to the developer in real-time — pgmemory processes it after delivery. There's never any slowdown from knowledge capture.
 
 ## Adaptive noise learning
 
-The pre-LLM gates aren't static — they improve over time. Here's how:
+The pre-LLM gates aren't static — they improve over time:
 
 1. **Rejected exchanges accumulate** — Every exchange rejected by the pre-filter or the LLM quality gate is logged to a ring buffer (500 most recent).
 2. **Noise prototypes are rebuilt** — Every 25 rejections, the assistant texts are re-embedded as noise prototypes.
-3. **The content scorer improves** — New prototypes are hot-swapped into the scoring system, so the noise detection adapts to your team's specific patterns.
-4. **Persistence across restarts** — The rejection log is saved to disk, so the system doesn't lose its learned noise patterns when the daemon restarts.
-
-The content score gate does **not** feed rejected exchanges back into the rejection store — this prevents a positive feedback loop where the scorer would amplify its own signal.
+3. **The content scorer improves** — New prototypes are hot-swapped into the scoring system, adapting to your specific patterns.
+4. **Persistence across restarts** — The rejection log is saved to disk, so the system doesn't lose its learned noise patterns.
 
 ## What builds over time
 
-After a team has been using memoryd for a few weeks, the shared store typically contains:
+After using pgmemory for a few weeks, the store typically contains:
 
-- **Architecture decisions** — why the team chose specific patterns, from the conversations where those decisions were made
+- **Architecture decisions** — why specific patterns were chosen, from the conversations where those decisions were made
 - **Debugging playbooks** — how to diagnose common issues, from actual debugging sessions
 - **Deployment knowledge** — environment config, migration procedures, rollback steps
 - **Codebase conventions** — naming patterns, error handling approaches, testing strategies
 - **Integration details** — how services connect, what APIs expect, edge cases discovered in practice
-
-All of it captured organically, with secrets scrubbed and duplicates merged.
