@@ -521,7 +521,6 @@ func (s *PostgresStore) filteredVectorSearch(ctx context.Context, embedding []fl
 	if source != "" {
 		conditions = append(conditions, fmt.Sprintf("source LIKE $%d", argN))
 		args = append(args, source+"%")
-		argN++
 	}
 
 	where := ""

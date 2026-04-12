@@ -80,9 +80,8 @@ func formatForStorage(user, assistant string) string {
 // ---------------------------------------------------------------------------
 
 type memStore struct {
-	mu              sync.RWMutex
-	memories        map[primitive.ObjectID]*store.Memory
-	retrievalEvents []store.RetrievalEvent
+	mu       sync.RWMutex
+	memories map[primitive.ObjectID]*store.Memory
 }
 
 func newMemStore() *memStore {
@@ -212,12 +211,6 @@ func (s *memStore) VectorSearch(_ context.Context, emb []float32, topK int) ([]s
 		out = append(out, r.mem)
 	}
 	return out, nil
-}
-
-func (s *memStore) count() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.memories)
 }
 
 func cosine(a, b []float32) float64 {

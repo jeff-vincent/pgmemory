@@ -94,13 +94,13 @@ func NewPostgresStoreLocal(ctx context.Context, dataDir string) (*PostgresStore,
 
 	// Ensure pgvector extension files are present before migration creates the extension.
 	if err := ensurePgvector(binPath); err != nil {
-		epg.Stop()
+		_ = epg.Stop()
 		return nil, nil, fmt.Errorf("pgvector setup: %w", err)
 	}
 
 	store, err := NewPostgresStore(ctx, epg.ConnString())
 	if err != nil {
-		epg.Stop()
+		_ = epg.Stop()
 		return nil, nil, fmt.Errorf("connecting to embedded postgres: %w", err)
 	}
 
