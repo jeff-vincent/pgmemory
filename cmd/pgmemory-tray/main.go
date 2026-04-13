@@ -714,8 +714,7 @@ func killProcessByPort(port string) {
 			continue
 		}
 		pid := 0
-		fmt.Sscanf(line, "%d", &pid)
-		if pid <= 0 {
+		if _, err := fmt.Sscanf(line, "%d", &pid); err != nil || pid <= 0 {
 			continue
 		}
 		proc, err := os.FindProcess(pid)

@@ -101,8 +101,7 @@ func stopPostgresByPort(port uint32) error {
 			continue
 		}
 		pid := 0
-		fmt.Sscanf(line, "%d", &pid)
-		if pid <= 0 {
+		if _, err := fmt.Sscanf(line, "%d", &pid); err != nil || pid <= 0 {
 			continue
 		}
 		log.Printf("Stopping orphaned Postgres (PID %d) on port %d...", pid, port)

@@ -18,5 +18,5 @@ benchmark-*.jsonl
 benchmark-*.md
 benchmark-*.log
 
-pgmemory
-pgmemory-tray
+/pgmemory
+/pgmemory-tray
