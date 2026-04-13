@@ -401,6 +401,30 @@ func SavePostgresURL(url string) error {
 	return os.WriteFile(Path(), out, 0600)
 }
 
+// ClearPostgresURL removes the postgres_url from the config file,
+// reverting the daemon to embedded Postgres mode.
+func ClearPostgresURL() error {
+	cfg := Default
+	data, err := os.ReadFile(Path())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading config: %w", err)
+	}
+	if err == nil {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("parsing config: %w", err)
+		}
+	}
+	cfg.PostgresURL = ""
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	if err := EnsureDir(); err != nil {
+		return err
+	}
+	return os.WriteFile(Path(), out, 0600)
+}
+
 // UsePostgres returns true if the config has a postgres_url set,
 // meaning the user wants to use external/team Postgres (not embedded).
 func (c *Config) UsePostgres() bool {

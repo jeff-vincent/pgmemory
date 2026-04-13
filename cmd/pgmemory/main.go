@@ -404,39 +404,51 @@ func startCmd() *cobra.Command {
 				}()
 			}
 
+			// cleanup shuts down all subprocesses and resources. It is safe
+			// to call multiple times (each resource guards itself).
+			cleanupOnce := sync.Once{}
+			cleanup := func() {
+				cleanupOnce.Do(func() {
+					log.Println("Shutting down...")
+
+					shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer shutCancel()
+					if err := srv.Shutdown(shutCtx); err != nil {
+						log.Printf("server shutdown error: %v", err)
+					}
+
+					if stw != nil {
+						stw.Stop()
+					}
+					cancel()
+
+					if rejLog != nil {
+						rejLog.Close()
+					}
+					if emb != nil {
+						emb.Close()
+					}
+					if pgStore != nil {
+						pgStore.Close()
+					}
+					if epg != nil {
+						if err := epg.Stop(); err != nil {
+							log.Printf("embedded postgres stop error: %v", err)
+						}
+					}
+				})
+			}
+
+			// Ensure cleanup runs on ANY exit path (crash, panic, normal return).
+			defer cleanup()
+
 			// Graceful shutdown on SIGINT / SIGTERM
 			sigCh := make(chan os.Signal, 1)
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 			go func() {
 				<-sigCh
-				log.Println("Shutting down...")
-
-				shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer shutCancel()
-				if err := srv.Shutdown(shutCtx); err != nil {
-					log.Printf("server shutdown error: %v", err)
-				}
-
-				if stw != nil {
-					stw.Stop()
-				}
-				cancel()
-
-				if rejLog != nil {
-					rejLog.Close()
-				}
-				if emb != nil {
-					emb.Close()
-				}
-				if pgStore != nil {
-					pgStore.Close()
-				}
-				if epg != nil {
-					if err := epg.Stop(); err != nil {
-						log.Printf("embedded postgres stop error: %v", err)
-					}
-				}
+				cleanup()
 			}()
 
 			return srv.Start()
@@ -884,11 +896,20 @@ func uploadCmd() *cobra.Command {
 				return fmt.Errorf("cannot access %s: %w", root, err)
 			}
 
+			skipDirs := map[string]bool{
+				"node_modules": true, ".git": true, "vendor": true,
+				"dist": true, "build": true, "__pycache__": true,
+				".venv": true, "venv": true,
+			}
+
 			var paths []string
 			if info.IsDir() {
 				err = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
 					if err != nil {
 						return err
+					}
+					if fi.IsDir() && skipDirs[fi.Name()] {
+						return filepath.SkipDir
 					}
 					if !fi.IsDir() && supportedExts[filepath.Ext(p)] {
 						paths = append(paths, p)

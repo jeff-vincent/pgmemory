@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 )
@@ -41,6 +43,22 @@ func NewEmbeddedPostgres(dataDir string, port uint32) (*EmbeddedPostgres, error)
 			Logger(log.Writer()),
 	)
 
+	// Clean up stale postmaster.pid from a previous unclean shutdown.
+	pidFile := filepath.Join(dataDir, "data", "postmaster.pid")
+	if data, err := os.ReadFile(pidFile); err == nil {
+		lines := strings.SplitN(string(data), "\n", 2)
+		if len(lines) > 0 {
+			pid := strings.TrimSpace(lines[0])
+			if pid != "" {
+				// Check if the process is still running.
+				if err := exec.Command("kill", "-0", pid).Run(); err != nil {
+					log.Printf("Removing stale postmaster.pid (pid %s is not running)", pid)
+					_ = os.Remove(pidFile)
+				}
+			}
+		}
+	}
+
 	log.Printf("Starting embedded Postgres on port %d (data: %s)...", port, dataDir)
 	if err := db.Start(); err != nil {
 		return nil, fmt.Errorf("starting embedded postgres: %w", err)
@@ -60,6 +78,47 @@ func (e *EmbeddedPostgres) Stop() error {
 	if e.db != nil {
 		log.Println("Stopping embedded Postgres...")
 		return e.db.Stop()
+	}
+	// If we connected to an existing embedded instance (db == nil), stop
+	// the orphaned postgres process so it doesn't outlive the daemon.
+	if e.port != 0 {
+		return stopPostgresByPort(e.port)
+	}
+	return nil
+}
+
+// stopPostgresByPort finds and terminates a postgres process listening on the
+// given port, waiting for it to exit. This cleans up orphaned instances from
+// previous daemon runs.
+func stopPostgresByPort(port uint32) error {
+	out, err := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%d", port), "-sTCP:LISTEN").Output()
+	if err != nil {
+		return nil // nothing listening
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		pid := 0
+		fmt.Sscanf(line, "%d", &pid)
+		if pid <= 0 {
+			continue
+		}
+		log.Printf("Stopping orphaned Postgres (PID %d) on port %d...", pid, port)
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+
+		// Wait up to 5s for clean exit.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if err := syscall.Kill(pid, 0); err != nil {
+				return nil // exited
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		// Force kill if still alive.
+		log.Printf("Force-killing orphaned Postgres (PID %d)", pid)
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 	return nil
 }

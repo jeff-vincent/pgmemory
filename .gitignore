@@ -17,3 +17,6 @@ eval-bin
 benchmark-*.jsonl
 benchmark-*.md
 benchmark-*.log
+
+pgmemory
+pgmemory-tray

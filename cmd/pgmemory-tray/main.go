@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -39,24 +40,15 @@ func onReady() {
 	systray.SetTitle("M")
 	systray.SetTooltip("pgmemory – memory layer for coding agents")
 
-	mStatus := systray.AddMenuItem("Status: checking...", "Daemon status")
+	mStatus := systray.AddMenuItem("Status: starting...", "Daemon status")
 	mStatus.Disable()
 
-	mDB := systray.AddMenuItem("Database: checking...", "Postgres connection status")
+	mDB := systray.AddMenuItem("Database: starting...", "Postgres connection status")
 	mDB.Disable()
-
-	mConnectDB := systray.AddMenuItem("Configure Postgres...", "Set Postgres connection URL")
-	mSetKey := systray.AddMenuItem("Set Anthropic Key...", "Store your Anthropic API key in the OS keychain")
-
-	// Show checkmarks if credentials are already configured.
-	if config.GetAnthropicAPIKey() != "" {
-		mSetKey.SetTitle("Set Anthropic Key  ✓")
-		mSetKey.Check()
-	}
 
 	systray.AddSeparator()
 
-	mToggle := systray.AddMenuItem("Start", "Start or stop the daemon")
+	mToggle := systray.AddMenuItem("Stop", "Start or stop the daemon")
 	mDash := systray.AddMenuItem("Open Dashboard", "API keys, LLM synthesis, and pipeline settings")
 
 	systray.AddSeparator()
@@ -69,17 +61,24 @@ func onReady() {
 
 	systray.AddSeparator()
 
+	// --- Settings ---
+	mSettings := systray.AddMenuItem("Settings", "Configure pgmemory")
+	mConnectDB := mSettings.AddSubMenuItem("Configure Postgres...", "Set Postgres connection URL")
+	mSetKey := mSettings.AddSubMenuItem("Set Anthropic Key...", "Store your Anthropic API key in the OS keychain")
+
+	// Show checkmarks if credentials are already configured.
+	if config.GetAnthropicAPIKey() != "" {
+		mSetKey.SetTitle("Set Anthropic Key  ✓")
+		mSetKey.Check()
+	}
+
+	systray.AddSeparator()
+
 	mUninstall := systray.AddMenuItem("Uninstall pgmemory...", "Remove pgmemory and all its data")
 
 	systray.AddSeparator()
 
 	mQuit := systray.AddMenuItem("Quit", "Quit pgmemory tray")
-
-	// Gate items behind MongoDB connection — disabled until connected.
-	mSetKey.Disable()
-	mToggle.Disable()
-	mDash.Disable()
-	mMode.Disable()
 
 	cfg, _ := config.Load()
 	port := cfg.Port
@@ -96,7 +95,7 @@ func onReady() {
 	}
 
 	// Poll daemon health every 3 seconds.
-	running := false
+	running := true // optimistic — we just started it
 	synthActive := false
 	dbConnected := false
 	go func() {
@@ -117,7 +116,7 @@ func onReady() {
 				}
 			}
 
-			// Track database connection status and gate menu items.
+			// Track database connection status (informational only — never gate menu items).
 			if ok {
 				dbStr, _ := health["database"].(string)
 				newDBConnected := dbStr == "connected"
@@ -125,17 +124,10 @@ func onReady() {
 					dbConnected = newDBConnected
 					if dbConnected {
 						mDB.SetTitle("Database: ✅ connected")
-						mSetKey.Enable()
-						mToggle.Enable()
-						mDash.Enable()
-						mMode.Enable()
 					} else if dbStr == "connecting" {
 						mDB.SetTitle("Database: 🔄 connecting...")
 					} else {
 						mDB.SetTitle("Database: ❌ disconnected")
-						mSetKey.Disable()
-						mDash.Disable()
-						mMode.Disable()
 					}
 				}
 			}
@@ -160,10 +152,6 @@ func onReady() {
 					mStatus.SetTitle("Status: ○ stopped")
 					mDB.SetTitle("Database: —")
 					mToggle.SetTitle("Start")
-					mToggle.Enable() // allow starting even when disconnected
-					mSetKey.Disable()
-					mDash.Disable()
-					mMode.Disable()
 					systray.SetTitle("M○")
 				}
 			}
@@ -191,17 +179,14 @@ func onReady() {
 				mToggle.SetTitle("Start")
 				mStatus.SetTitle("Status: ○ stopped")
 				mDB.SetTitle("Database: —")
-				mSetKey.Disable()
-				mDash.Disable()
-				mMode.Disable()
 				systray.SetTitle("M○")
 			} else {
 				setStartGrace()
 				startDaemon(binaryPath)
 				running = true
 				mToggle.SetTitle("Stop")
-				mStatus.SetTitle("Status: ● running on port " + fmt.Sprintf("%d", port))
-				mDB.SetTitle("Database: 🔄 connecting...")
+				mStatus.SetTitle("Status: starting...")
+				mDB.SetTitle("Database: starting...")
 				systray.SetTitle("M●")
 			}
 
@@ -290,6 +275,11 @@ func startDaemon(binary string) {
 		return // already running
 	}
 
+	// Kill any orphaned subprocesses from a previous daemon that crashed
+	// without cleanup. The daemon does this too, but doing it here ensures
+	// ports are free before we even attempt to start.
+	killOrphans()
+
 	cmd := exec.Command(binary, "start")
 	// Send logs to a file
 	logDir := config.Dir()
@@ -339,6 +329,10 @@ func stopDaemon() {
 	daemonMu.Lock()
 	if daemonCmd == nil || daemonCmd.Process == nil {
 		daemonMu.Unlock()
+		// Even if we don't own the daemon process, clean up any orphaned
+		// subprocesses (llama-server, embedded postgres) that may have been
+		// left behind by a crashed daemon.
+		killOrphans()
 		return
 	}
 	daemonCmd.Process.Signal(os.Interrupt)
@@ -366,6 +360,10 @@ func stopDaemon() {
 	daemonCmd = nil
 	daemonDone = nil
 	daemonMu.Unlock()
+
+	// After daemon exits, clean up any subprocesses it may not have
+	// cleaned up (e.g. if it was killed with SIGKILL).
+	killOrphans()
 }
 
 // extractCrashReason reads the daemon log and returns the last error line.
@@ -443,11 +441,21 @@ func configurePostgresDialog(binaryPath string, running *bool) {
 	}
 	url := strings.TrimSpace(string(urlOut))
 
-	// Store the URL (empty string clears it, reverting to embedded mode).
-	if err := config.StoreCredential("postgres_url", url); err != nil {
-		exec.Command("osascript", "-e",
-			fmt.Sprintf(`display dialog "Failed to save connection URL: %s" buttons {"OK"} with icon stop with title "pgmemory"`, err.Error())).Run()
-		return
+	// Store the URL and update config (empty string clears it, reverting to embedded mode).
+	if url == "" {
+		// Clear keychain credential and remove postgres_url from config.
+		_ = config.StoreCredential("postgres_url", "")
+		if err := config.ClearPostgresURL(); err != nil {
+			exec.Command("osascript", "-e",
+				fmt.Sprintf(`display dialog "Failed to clear connection URL: %s" buttons {"OK"} with icon stop with title "pgmemory"`, err.Error())).Run()
+			return
+		}
+	} else {
+		if err := config.SavePostgresURL(url); err != nil {
+			exec.Command("osascript", "-e",
+				fmt.Sprintf(`display dialog "Failed to save connection URL: %s" buttons {"OK"} with icon stop with title "pgmemory"`, err.Error())).Run()
+			return
+		}
 	}
 
 	// Restart daemon to pick up the new connection.
@@ -683,4 +691,45 @@ func openDashboard(port int) {
 		url += "?token=" + token
 	}
 	exec.Command("open", url).Start()
+}
+
+// killOrphans kills orphaned llama-server and embedded postgres processes
+// from a previous daemon that exited without proper cleanup. This ensures
+// ports 7433 and 7434 are free before starting a new daemon.
+func killOrphans() {
+	killProcessByPort("7433") // llama-server
+	killProcessByPort("7434") // embedded postgres
+}
+
+// killProcessByPort finds the process listening on the given TCP port and
+// terminates it, waiting up to 5 seconds before force-killing.
+func killProcessByPort(port string) {
+	out, err := exec.Command("lsof", "-ti", "tcp:"+port, "-sTCP:LISTEN").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		pid := 0
+		fmt.Sscanf(line, "%d", &pid)
+		if pid <= 0 {
+			continue
+		}
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		_ = proc.Signal(os.Interrupt)
+		// Wait up to 5s for clean exit.
+		for i := 0; i < 25; i++ {
+			time.Sleep(200 * time.Millisecond)
+			if err := proc.Signal(syscall.Signal(0)); err != nil {
+				return // exited
+			}
+		}
+		_ = proc.Kill()
+	}
 }

@@ -118,6 +118,21 @@ if [[ -n "$POSTGRES_URI" ]]; then
   ok "Using external PostgreSQL"
 fi
 
+# pgvector (needed for embedded PostgreSQL on macOS)
+if [[ "$OS" == "darwin" && -z "$POSTGRES_URI" ]]; then
+  if command -v brew &>/dev/null; then
+    if brew list pgvector &>/dev/null 2>&1; then
+      ok "pgvector installed (Homebrew)"
+    else
+      info "Installing pgvector via Homebrew (required for embedded PostgreSQL)..."
+      brew install pgvector
+      ok "pgvector installed"
+    fi
+  else
+    info "Homebrew not found — pgvector may need manual install for embedded PostgreSQL"
+  fi
+fi
+
 # ── Download release ───────────────────────────────────────────────
 
 step "Download pgmemory"
@@ -436,6 +451,16 @@ if [[ "$OS" == "darwin" && -d "$APP_DIR/Pgmemory.app" ]]; then
   # Launch the menu bar app — it manages the daemon.
   open "$APP_DIR/Pgmemory.app"
   ok "Pgmemory.app launched (menu bar + daemon)"
+
+  # Register as a Login Item so it auto-starts on reboot.
+  # Uses osascript to add to System Settings > General > Login Items.
+  if ! osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | grep -q "Pgmemory"; then
+    osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Pgmemory.app", hidden:true}' 2>/dev/null \
+      && ok "Registered as Login Item (auto-starts on reboot)" \
+      || info "Could not register Login Item — add Pgmemory.app manually in System Settings > Login Items"
+  else
+    ok "Already registered as Login Item"
+  fi
 else
   # Linux or no .app: start daemon in background.
   nohup "$MEMORYD_BIN" start > "$MEMORYD_DIR/daemon.log" 2>&1 &
@@ -465,17 +490,16 @@ echo ""
 echo "  pgmemory is installed and running."
 echo ""
 echo "  Dashboard:     http://127.0.0.1:7432"
-echo "  MCP mode:      Already configured in ~/.mcp.json"
-echo "  Database:      Embedded PostgreSQL (no setup needed)"
+echo "  MCP mode:      Already configured for your coding agents"
+echo "  Database:      Embedded PostgreSQL (zero setup)"
 if [[ -n "$POSTGRES_URI" ]]; then
 echo "                 Using external: ${POSTGRES_URI:0:40}..."
 fi
 echo ""
-echo "  To enable LLM synthesis (recommended):"
-echo "    Set your Anthropic API key via the menu bar app or:"
-echo "    pgmemory config --anthropic-key <key>"
-echo ""
 if [[ "$OS" == "darwin" && -d "$APP_DIR/Pgmemory.app" ]]; then
-echo "  The Pgmemory menu bar app is running — look for the icon in your menu bar."
+echo "  Look for the M● icon in your menu bar. It auto-starts on reboot."
+echo ""
+echo "  Optional: set your Anthropic API key via the menu bar to enable"
+echo "  LLM synthesis (smarter memory extraction from conversations)."
 echo ""
 fi
